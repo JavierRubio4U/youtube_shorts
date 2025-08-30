@@ -1,0 +1,49 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos de configuración locales (API keys, secretos)
+config/tmdb_api_key.txt
+*.env
+.env.*
+.DS_Store
+
+# Archivos temporales / logs
+*.log
+tmp/
+*.tmp
+*.bak
+
+# Salidas de build / distribuciones
+dist/
+build/
+
+# Archivos multimedia generados (no versionar, demasiado pesados)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.flac
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Carpetas de trabajo del proyecto
+assets/posters/
+assets/backdrops/
+assets/music/
+output/
+results/
+cache/
+

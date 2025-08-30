@@ -1,0 +1,26 @@
+# --- Core video ---
+moviepy==1.0.3
+imageio==2.35.1
+imageio-ffmpeg==0.4.9
+Pillow==10.4.0
+
+# --- TTS (Coqui + soporte) ---
+TTS==0.22.0
+torch==2.5.1
+torchaudio==2.5.1
+transformers==4.41.1
+tokenizers==0.19.1
+accelerate==0.30.1
+librosa==0.10.2.post1
+
+# --- Extras (fallback offline en Windows) ---
+pyttsx3==2.90
+pypiwin32==223
+
+# --- YouTube API ---
+google-api-python-client==2.149.0
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+
+
