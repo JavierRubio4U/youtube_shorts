@@ -22,7 +22,7 @@ def api_get(path, params=None):
 
 def discover_es_week():
     today = datetime.today().date()
-    week_ahead = today + timedelta(days=7)
+    week_ahead = today + timedelta(days=30)
     return api_get("/discover/movie", {
         "language": "es-ES",
         "region": "ES",
@@ -115,6 +115,14 @@ def get_week_releases_enriched():
     # Ordena por hype descendente (las “más esperadas” arriba)
     enriched.sort(key=lambda x: x["hype"], reverse=True)
     return enriched
+
+movies = get_week_releases_enriched()
+print("🎬 Películas candidatas disponibles:")
+if movies:
+    for m in movies:
+        print(f"- {m['titulo']} (Hype: {m['hype']})")
+else:
+    print("- No hay películas candidatas en el rango de búsqueda.")
 
 if __name__ == "__main__":
     movies = get_week_releases_enriched()

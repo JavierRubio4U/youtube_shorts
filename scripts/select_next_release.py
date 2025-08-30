@@ -16,6 +16,15 @@ STATE_DIR.mkdir(parents=True, exist_ok=True)
 PUBLISHED_FILE = STATE_DIR / "published.json"
 NEXT_FILE = STATE_DIR / "next_release.json"
 
+import re
+
+def _is_latin_text(text: str) -> bool:
+    """Devuelve True si el texto contiene al menos un 50% de caracteres latinos."""
+    if not text:
+        return False
+    latin_chars = re.findall(r"[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ\s]", text)
+    return len(latin_chars) / len(text) > 0.5
+
 def _load_state():
     if PUBLISHED_FILE.exists():
         return json.loads(PUBLISHED_FILE.read_text(encoding="utf-8"))
@@ -45,11 +54,31 @@ def pick_next():
     exclude = published | picked
 
     movies = get_week_releases_enriched()  # ordenadas por HYPE desc
-    candidate = next((m for m in movies if m["id"] not in exclude), None)
+    
 
+    print("--- Análisis de candidatos ---")
+    for m in movies:
+        tiene_titulo = bool(m["titulo"] and _is_latin_text(m["titulo"]))
+        tiene_sinopsis = bool(m["sinopsis"])
+        tiene_backdrops = bool(len(m["backdrops"]) >= 6)
+        
+        cumple_requisitos = tiene_titulo and tiene_sinopsis and tiene_backdrops
+        
+        print(f"- {m['titulo']}:")
+        print(f"  - Título válido: {'✅' if tiene_titulo else '❌'}")
+        print(f"  - Sinopsis: {'✅' if tiene_sinopsis else '❌'}")
+        print(f"  - Backdrops (>=6): {'✅' if tiene_backdrops else '❌'} ({len(m['backdrops'])})")
+        if not cumple_requisitos:
+            print("  - Razón: no cumple todos los requisitos.")
+        
+    print("--- Fin de análisis ---")
+
+    candidate = next((m for m in movies if m["id"] not in exclude and m["titulo"] and _is_latin_text(m["titulo"]) and len(m["backdrops"]) >= 4), None)
     if not candidate:
         print("No hay candidatos nuevos (todo publicado o ya elegido).")
         return None
+
+
 
     payload = {
         "tmdb_id": candidate["id"],

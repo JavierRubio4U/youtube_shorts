@@ -14,7 +14,7 @@ def run():
     print("▶ Paso 1: seleccionar siguiente…")
     sel = select_next_release.pick_next()
     if not sel:
-        return
+        return None
 
     print("▶ Paso 2: descargar assets (vertical/letterbox, 8 backdrops)…")
     download_assets.main()  # sin flags; ya con defaults “buenos”
@@ -29,6 +29,7 @@ def run():
         build_youtube_metadata.main()
 
     print("✅ Pipeline completado.")
+    return sel
 
 if __name__ == "__main__":
     run()

@@ -52,6 +52,30 @@ LINE_SPACING = 10
 HOOK_MAX_CHARS = 90
 
 
+import ollama
+
+def _generate_synopsis_with_ai(sel: dict) -> str | None:
+        """Genera una sinopsis con una IA local (Ollama)."""
+        try:
+            prompt = f"""Escribe una sinopsis de unas 60-70 palabras para una película. Usa los siguientes datos para inspirarte:
+
+    Título: {sel.get("titulo")}
+    Géneros: {', '.join(sel.get("generos"))}
+    Reparto: {', '.join(sel.get("reparto_top"))}
+    Palabras clave: {', '.join(sel.get("keywords"))}
+
+    La sinopsis debe ser atractiva, concisa y en español.
+    """
+            response = ollama.chat(model='mistral', messages=[
+                {'role': 'user', 'content': prompt}
+            ])
+            synopsis = response['message']['content']
+            return synopsis
+        except Exception as e:
+            print(f"❌ Error al generar sinopsis con Ollama: {e}")
+            return None
+
+
 # ------------------ UTILIDADES TEXTO ------------------
 def slugify(text: str, maxlen: int = 60) -> str:
     s = (text or "").lower().strip()
@@ -215,8 +239,9 @@ def smart_hook(sel: dict) -> str:
     base = re.sub(r'["“”]+', "", base).strip(" .,!¡¿?;:")
     return _truncate_ellipsis(base, HOOK_MAX_CHARS)
 
-def _narracion_from_sinopsis(sel: dict, target_words: int = 70) -> str | None:
-    sinopsis = _normalize_text(sel.get("sinopsis") or sel.get("overview") or "")
+# Modifica la firma de la función para aceptar 'sinopsis' como argumento
+def _narracion_from_sinopsis(sinopsis: str, target_words: int = 70) -> str | None:
+    sinopsis = _normalize_text(sinopsis)
     if not sinopsis:
         return None
     sents = _sentences(sinopsis) or [sinopsis]
@@ -249,11 +274,24 @@ def _narracion_from_generos(sel: dict, target_words: int = 70) -> str:
         base = "La historia de la que todos hablarán: personajes potentes, emociones a flor de piel y un final que deja huella."
     return _trim_to_words(base, target_words)
 
+# --- Tu función _generate_synopsis_with_ai está aquí ---
+# ...
+
 def get_narracion(sel: dict) -> str | None:
+    # Primero intenta con la sinopsis de TMDb
     sinopsis = _normalize_text(sel.get("sinopsis") or sel.get("overview") or "")
+
+    # Si no hay sinopsis, la genera con IA local
+    if not sinopsis:
+        print("🔎 Sinopsis no encontrada en TMDb. Generando con IA local...")
+        sinopsis = _generate_synopsis_with_ai(sel)
+
+    # Ahora, si tenemos una sinopsis (ya sea de TMDb o generada por IA),
+    # se la pasamos a la función que la recorta y la usa.
     if sinopsis:
-        return _narracion_from_sinopsis(sel, target_words=70)
-    return _narracion_from_generos(sel, target_words=70)
+        return _narracion_from_sinopsis(sinopsis, target_words=60)
+        
+    return None
 
 
 # ------------------ TTS ------------------
