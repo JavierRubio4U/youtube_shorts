@@ -1,49 +1,40 @@
-# Entornos virtuales
-.venv/
-venv/
-env/
-ENV/
+# --- Archivos sensibles ---
+client_secret.json
+token.json
+*.pem
+*.p12
 
-# Python cache
+# --- Carpeta de configuración (contiene credenciales) ---
+config/
+
+# --- Outputs generados ---
+output/
+*.mp4
+*.wav
+*.mp3
+*.jpg
+*.png
+
+# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Archivos de configuración locales (API keys, secretos)
-config/tmdb_api_key.txt
-*.env
-.env.*
-.DS_Store
-
-# Archivos temporales / logs
 *.log
-tmp/
-*.tmp
-*.bak
 
-# Salidas de build / distribuciones
-dist/
-build/
+# --- Entornos ---
+.env
+.venv/
+env/
+venv/
+*.conda
+*.egg-info/
 
-# Archivos multimedia generados (no versionar, demasiado pesados)
-*.mp4
-*.mov
-*.avi
-*.mkv
-*.wav
-*.mp3
-*.flac
-*.png
-*.jpg
-*.jpeg
-*.webp
+# --- VSCode ---
+.vscode/
 
-# Carpetas de trabajo del proyecto
-assets/posters/
-assets/backdrops/
-assets/music/
-output/
-results/
-cache/
+# --- Otros ---
+.DS_Store
+Thumbs.db
+
 
