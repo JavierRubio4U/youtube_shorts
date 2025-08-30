@@ -8,6 +8,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import pipeline
+import select_next_release
 import build_short              # monta el MP4
 import upload_youtube           # sube
 
