@@ -7,10 +7,10 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import pipeline                 # selecciona + descarga + metadata
+import pipeline
 import build_short              # monta el MP4
 import upload_youtube           # sube
-import select_next_release      # marca publicado
+
 
 STATE = ROOT / "output" / "state"
 
