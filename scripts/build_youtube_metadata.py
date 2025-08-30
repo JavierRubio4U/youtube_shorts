@@ -100,7 +100,7 @@ def main():
 
     lines.append("")
     lines.append("Créditos de datos e imágenes: The Movie Database (TMDb)")
-    lines.append("https://www.themoviedb.org/")
+    
 
     description = "\n".join(lines)
 
