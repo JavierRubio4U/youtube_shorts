@@ -59,14 +59,12 @@ def pick_next():
     print("--- Análisis de candidatos ---")
     for m in movies:
         tiene_titulo = bool(m["titulo"] and _is_latin_text(m["titulo"]))
-        tiene_sinopsis = bool(m["sinopsis"])
-        tiene_backdrops = bool(len(m["backdrops"]) >= 6)
+        tiene_backdrops = bool(len(m["backdrops"]) >= 4)
         
-        cumple_requisitos = tiene_titulo and tiene_sinopsis and tiene_backdrops
+        cumple_requisitos = tiene_titulo and tiene_backdrops
         
         print(f"- {m['titulo']}:")
         print(f"  - Título válido: {'✅' if tiene_titulo else '❌'}")
-        print(f"  - Sinopsis: {'✅' if tiene_sinopsis else '❌'}")
         print(f"  - Backdrops (>=6): {'✅' if tiene_backdrops else '❌'} ({len(m['backdrops'])})")
         if not cumple_requisitos:
             print("  - Razón: no cumple todos los requisitos.")
