@@ -65,7 +65,7 @@ def pick_next():
         
         print(f"- {m['titulo']}:")
         print(f"  - Título válido: {'✅' if tiene_titulo else '❌'}")
-        print(f"  - Backdrops (>=6): {'✅' if tiene_backdrops else '❌'} ({len(m['backdrops'])})")
+        print(f"  - Backdrops (>=4): {'✅' if tiene_backdrops else '❌'} ({len(m['backdrops'])})")
         if not cumple_requisitos:
             print("  - Razón: no cumple todos los requisitos.")
         
