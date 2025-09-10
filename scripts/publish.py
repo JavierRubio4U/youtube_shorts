@@ -27,21 +27,17 @@ def main():
     mp4_path = build_short.main()
 
     print("▶ Upload a YouTube…")
-    # Añade una verificación antes de subir
-    if upload_youtube.main(mp4_path):
+    video_id = upload_youtube.main(mp4_path)
+    
+    # Añade una verificación antes de marcar como publicado
+    if video_id:
         # marca como publicado
         meta = json.loads((STATE / "youtube_metadata.json").read_text(encoding="utf-8"))
         select_next_release.mark_published(int(meta["tmdb_id"]))
 
-        print("✅ Publicado y marcado.")
+        print("✅ Publicado y marcado. Video:", f"https://studio.youtube.com/video/{video_id}/edit")
     else:
         print("🛑 La subida falló o se omitió. No se marcó como publicado.")
-
-    # marca como publicado
-    meta = json.loads((STATE / "youtube_metadata.json").read_text(encoding="utf-8"))
-    select_next_release.mark_published(int(meta["tmdb_id"]))
-
-    print("✅ Publicado y marcado. Video:", f"https://studio.youtube.com/video/{video_id}/edit")
 
 if __name__ == "__main__":
     main()

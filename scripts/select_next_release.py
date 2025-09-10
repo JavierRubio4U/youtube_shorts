@@ -58,7 +58,7 @@ def pick_next():
 
     print("--- Análisis de candidatos ---")
     for m in movies:
-        tiene_titulo = bool(m["titulo"] and _is_latin_text(m["titulo"]))
+        tiene_titulo = bool(m["titulo"])
         tiene_backdrops = bool(len(m["backdrops"]) >= 4)
         
         cumple_requisitos = tiene_titulo and tiene_backdrops
@@ -71,7 +71,7 @@ def pick_next():
         
     print("--- Fin de análisis ---")
 
-    candidate = next((m for m in movies if m["id"] not in exclude and m["titulo"] and _is_latin_text(m["titulo"]) and len(m["backdrops"]) >= 4), None)
+    candidate = next((m for m in movies if m["id"] not in exclude and m["titulo"] and len(m["backdrops"]) >= 4), None)
     if not candidate:
         print("No hay candidatos nuevos (todo publicado o ya elegido).")
         return None

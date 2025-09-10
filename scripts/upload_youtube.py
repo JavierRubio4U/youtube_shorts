@@ -32,104 +32,62 @@ def _debug_paths():
 def _load_metadata():
     meta_path = STATE_DIR / "youtube_metadata.json"
     if not meta_path.exists():
-        raise SystemExit(f"No se encontró el archivo de metadata: {meta_path}")
+        raise SystemExit(f"Falta el archivo de metadata: {meta_path}")
     return json.loads(meta_path.read_text(encoding="utf-8"))
 
-# ---------------------------------------------------------------------
-# Autenticación
-# ---------------------------------------------------------------------
-def get_youtube_service():
-    _debug_paths()
+def _get_youtube_service():
     creds = None
-
     if TOKEN_FILE.exists():
-        print("[DBG] Token JSON encontrado. Usando credenciales existentes...")
-        try:
-            creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
-            print("[DBG] Token cargado.")
-        except Exception as e:
-            print(f"[DBG] Fallo leyendo TOKEN_FILE: {e}")
-            creds = None
-
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             print("[DBG] Token expirado. Refrescando...")
-            try:
-                creds.refresh(Request())
-                print("[DBG] Refresh OK.")
-            except Exception as e:
-                print(f"[DBG] Refresh falló: {e}")
-                creds = None
+            creds.refresh(Request())
         else:
             if not CLIENT_SECRET_FILE.exists():
-                raise SystemExit(f"Falta client_secret.json en: {CLIENT_SECRET_FILE}")
-
-            print("[DBG] Creando flujo OAuth desde client_secret.json…")
-            flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET_FILE), SCOPES)
-
-            # Autenticación para consola (sin navegador gráfico)
-            auth_url, _ = flow.authorization_url(prompt="consent")
-            print("Por favor, abre la siguiente URL en tu navegador y autoriza el acceso:")
-            print(auth_url)
-            print("\nLuego, copia el código que aparece y pégalo aquí:")
-
-            # Esperar a que el usuario introduzca el código de autorización
-            try:
-                code = input("Código de autorización: ").strip()
-            except (EOFError, KeyboardInterrupt) as e:
-                raise SystemExit("Fallo en la entrada del código. Intenta de nuevo.")
-
-            flow.fetch_token(code=code)
-            creds = flow.credentials
-
-        # Guardar token JSON para futuras ejecuciones
-        try:
-            TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
-            print(f"[DBG] Token guardado en: {TOKEN_FILE.resolve()}")
-        except Exception as e:
-            print(f"[DBG] Error guardando token: {e}")
-
+                raise SystemExit(f"[ERROR] Falta el archivo 'client_secret.json' en {CONFIG_DIR}")
+            print("No hay token. Iniciando flujo OAuth2...")
+            flow = InstalledAppFlow.from_client_secrets_file(
+                CLIENT_SECRET_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open(TOKEN_FILE, "w") as token:
+            token.write(creds.to_json())
+            print("[DBG] Token guardado.")
     return build("youtube", "v3", credentials=creds)
 
-# --------------------------------------------------------------------
-# Subida de video
-# --------------------------------------------------------------------
-def upload_video(video_path: str, meta: dict) -> str:
-    service = get_youtube_service()
+def upload_video(video_path: str, meta: dict):
+    if not Path(video_path).exists():
+        raise SystemExit(f"Falta el archivo de video: {video_path}")
+    
+    youtube = _get_youtube_service()
 
     body = {
         "snippet": {
             "title": meta["title"],
             "description": meta["description"],
-            "tags": meta.get("tags", []),
-            "defaultLanguage": "es",
-            "defaultAudioLanguage": "es"
+            "tags": meta["tags"],
+            "defaultLanguage": "es"
         },
         "status": {
-            "privacyStatus": meta.get("default_visibility", "unlisted")
+            "privacyStatus": meta["default_visibility"],
+            "selfDeclaredMadeForKids": meta["made_for_kids"] # <--- AQUI ESTÁ EL CAMBIO
         },
-        "kind": "youtube#video"
     }
 
-    media = MediaFileUpload(video_path, resumable=True, chunksize=-1, mimetype="video/mp4")
-    request = service.videos().insert(part="snippet,status", body=body, media_body=media)
+    print(f"Subiendo a YouTube... Título: '{meta['title']}'")
+    insert_req = youtube.videos().insert(
+        part=",".join(body.keys()),
+        body=body,
+        media_body=MediaFileUpload(video_path, chunksize=-1, resumable=True)
+    )
 
     response = None
-    while response is None:
-        try:
-            status, response = request.next_chunk()
-            if status:
-                print(f"Subiendo... {int(status.progress() * 100)}%")
-        except Exception as e:
-            print(f"Error durante la subida: {e}")
-            break
-
-    if response is not None:
-        video_id = response["id"]
-        print("✅ Subido:", f"https://studio.youtube.com/video/{video_id}/edit")
-        return video_id
-    else:
-        raise SystemExit("Fallo en la subida del video.")
+    try:
+        response = insert_req.execute()
+        return response.get("id")
+    except Exception as e:
+        print(f"Fallo en la subida: {e}")
+        return None
 
 # ---------------------------------------------------------------------
 # CLI
@@ -151,12 +109,11 @@ def main(video_path: str | None = None):
 
     print(f"▶ Subiendo video: {video_path}")
     video_id = upload_video(video_path, meta)
-    print("✅ Subida completada. ID:", video_id)
+    
+    if video_id:
+        print("✅ Subida completada. ID:", video_id)
+    return video_id
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Sube un video de un short a YouTube")
-    parser.add_argument("--video", type=str, default=None,
-                        help="Ruta MP4 (opcional). Si se omite, autodetecta por tmdb_id.")
-    args = parser.parse_args()
-    main(args.video)
+    main()

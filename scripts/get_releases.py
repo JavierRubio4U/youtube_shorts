@@ -20,26 +20,28 @@ def api_get(path, params=None):
     r.raise_for_status()
     return r.json()
 
-def discover_es_week():
+def discover_global_week():
     today = datetime.today().date()
     week_ahead = today + timedelta(days=30)
     return api_get("/discover/movie", {
-        "language": "es-ES",
-        "region": "ES",
-        "sort_by": "release_date.asc",
+        "sort_by": "popularity.desc", # Ordenamos por popularidad para que coja las más relevantes
         "release_date.gte": today.isoformat(),
         "release_date.lte": week_ahead.isoformat(),
-        "with_release_type": "3|2|1"  # theatrical/digital/limited
+        "with_release_type": "3|2|1"
     }).get("results", [])
 
 def enrich_movie(mid):
-    # Trae todo en una sola llamada con append_to_response
+    # Trae los datos de la película en español e inglés
     data = api_get(f"/movie/{mid}", {
-        "language": "es-ES",
+        "language": "es-ES", # Pide la info principal en español
         "append_to_response": "images,videos,release_dates,watch/providers,credits,keywords",
-        # Parámetros adicionales útiles para sub-recursos:
         "include_image_language": "es,null,en",
     })
+
+    # Si no hay sinopsis en español, la busca en inglés
+    if not data.get("overview"):
+        en_data = api_get(f"/movie/{mid}", {"language": "en-US"})
+        data["overview"] = en_data.get("overview")
 
     # Posters y backdrops (varios)
     posters = []
@@ -70,7 +72,6 @@ def enrich_movie(mid):
         if rel.get("iso_3166_1") == "ES":
             rel_es = rel.get("release_dates", [])
             if rel_es:
-                # coge la última con certification si existe
                 cert_es = next((x.get("certification") for x in rel_es if x.get("certification")), None)
             break
 
@@ -110,27 +111,21 @@ def enrich_movie(mid):
     }
 
 def get_week_releases_enriched():
-    base = discover_es_week()
+    base = discover_global_week()
     enriched = [enrich_movie(m["id"]) for m in base]
-    # Ordena por hype descendente (las “más esperadas” arriba)
     enriched.sort(key=lambda x: x["hype"], reverse=True)
     return enriched
 
-movies = get_week_releases_enriched()
-print("🎬 Películas candidatas disponibles:")
-if movies:
-    for m in movies:
-        print(f"- {m['titulo']} (Hype: {m['hype']})")
-else:
-    print("- No hay películas candidatas en el rango de búsqueda.")
-
 if __name__ == "__main__":
     movies = get_week_releases_enriched()
-    print("🎬 Estrenos en España (ordenados por HYPE):\n")
-    for m in movies:
-        print(f"- {m['titulo']} ({m['fecha_estreno']})  ⭐{m['vote_average']}  👍{m['vote_count']}  🔥{m['popularity']:.1f}  HYPE={m['hype']}")
-        print(f"  Trailer: {m['trailer']}")
-        print(f"  Poster:  {m['poster_principal']}")
-        print(f"  Backdrops[{len(m['backdrops'])}]: {', '.join(m['backdrops'][:3])}...")
-        print(f"  Cert_ES: {m['certificacion_ES']}  Providers ES: {m['providers_ES']}")
-        print()
+    print("🎬 Estrenos disponibles (ordenados por HYPE):\n")
+    if movies:
+        for m in movies:
+            print(f"- {m['titulo']} ({m['fecha_estreno']})  ⭐{m['vote_average']}  👍{m['vote_count']}  🔥{m['popularity']:.1f}  HYPE={m['hype']}")
+            print(f"  Trailer: {m['trailer']}")
+            print(f"  Poster:  {m['poster_principal']}")
+            print(f"  Backdrops[{len(m['backdrops'])}]: {', '.join(m['backdrops'][:3])}...")
+            print(f"  Cert_ES: {m['certificacion_ES']}  Providers ES: {m['providers_ES']}")
+            print()
+    else:
+        print("No hay películas candidatas en el rango de búsqueda.")

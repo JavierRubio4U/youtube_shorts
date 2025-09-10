@@ -1,5 +1,6 @@
 # scripts/build_short.py
 import json, re, unicodedata, subprocess
+import random
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -7,14 +8,12 @@ from moviepy.editor import (
     ImageClip, concatenate_videoclips, AudioFileClip, CompositeAudioClip
 )
 import moviepy.audio.fx.all as afx
+import math
 
-# --- Shim Pillow 10+: MoviePy 1.0.3 usa Image.ANTIALIAS (eliminado en Pillow>=10) ---
-try:
-    if not hasattr(Image, "ANTIALIAS"):
-        Image.ANTIALIAS = Image.Resampling.LANCZOS
-except Exception:
-    pass
-
+# --- Compatibilidad Pillow >=10 con MoviePy 1.0.3 ---
+from PIL import Image
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
 
 # --- Rutas y dirs ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +23,7 @@ SHORTS_DIR = ROOT / "output" / "shorts"
 SHORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 MUSIC_DIR = (ROOT / "assets" / "music")
+FONTS_DIR = (ROOT / "assets" / "fonts")
 
 # Parámetros generales
 MUSIC_VOL = 0.28
@@ -53,27 +53,82 @@ HOOK_MAX_CHARS = 90
 
 
 import ollama
+from langdetect import detect, DetectorFactory
 
-def _generate_synopsis_with_ai(sel: dict) -> str | None:
-        """Genera una sinopsis con una IA local (Ollama)."""
-        try:
-            prompt = f"""Escribe una sinopsis de unas 60-70 palabras para una película. Usa los siguientes datos para inspirarte:
+# Para resultados consistentes
+DetectorFactory.seed = 0
 
-    Título: {sel.get("titulo")}
-    Géneros: {', '.join(sel.get("generos"))}
-    Reparto: {', '.join(sel.get("reparto_top"))}
-    Palabras clave: {', '.join(sel.get("keywords"))}
+def _translate_with_ai(text: str, model='mistral') -> str | None:
+    """Traduce un texto usando un modelo local de Ollama."""
+    try:
+        prompt = f"""Traduce el siguiente texto al español de forma natural, sin añadir ninguna explicación adicional:
+        {text}
+        """
+        response = ollama.chat(model=model, messages=[
+            {'role': 'user', 'content': prompt}
+        ])
+        
+        # Elimina cualquier texto de traducción automática
+        translated_text = response['message']['content'].strip()
+        translated_text = re.sub(r'\(.*?\)', '', translated_text)
+        return translated_text.strip()
+    except Exception as e:
+        print(f"❌ Error al traducir el título con Ollama: {e}")
+        return None
 
-    La sinopsis debe ser atractiva, concisa y en español.
-    """
-            response = ollama.chat(model='mistral', messages=[
-                {'role': 'user', 'content': prompt}
-            ])
-            synopsis = response['message']['content']
-            return synopsis
-        except Exception as e:
-            print(f"❌ Error al generar sinopsis con Ollama: {e}")
-            return None
+def _generate_narracion_with_ai(sel: dict, model='mistral') -> str | None:
+    """Genera una sinopsis larga y limpia con Ollama."""
+    try:
+        prompt = f"""
+        Genera una sinopsis detallada y atractiva de 70-80 palabras en español para la siguiente película.
+        La sinopsis debe ser un párrafo cohesivo y no debe listar el título, los géneros, el reparto ni ninguna otra metadata.
+        Utiliza la siguiente información para inspirarte:
+        
+        Título: {sel.get("titulo")}
+        Sinopsis original: {sel.get("sinopsis")}
+        Géneros: {', '.join(sel.get("generos"))}
+        Palabras clave: {', '.join(sel.get("keywords"))}
+        """
+        response = ollama.chat(model=model, messages=[
+            {'role': 'user', 'content': prompt}
+        ])
+        narracion = response['message']['content']
+        # Limpieza adicional para eliminar posibles metadatos
+        narracion = re.sub(r'(Título|Géneros|Reparto|Sinopsis original):.*$', '', narracion, flags=re.MULTILINE).strip()
+        narracion = re.sub(r'[^\w\s\¿\¡\?\!\,\.\-\:\;«»"]', '', narracion)
+        return _normalize_text(narracion)
+
+    except Exception as e:
+        print(f"❌ Error al generar sinopsis con Ollama: {e}")
+        return None
+
+def _generate_hook_with_ai(sel: dict, model='mistral') -> str | None:
+    """Genera un gancho corto con Ollama."""
+    try:
+        prompt = f"""
+        Basándote en el título y la sinopsis de la película, crea un gancho corto y llamativo para un short de YouTube.
+        El gancho debe ser una única frase impactante de no más de 15 palabras.
+        No incluyas el título de la película.
+        
+        Información de la película:
+        - Título: {sel.get('titulo')}
+        - Sinopsis: {sel.get('sinopsis')}
+        - Géneros: {', '.join(sel.get('generos'))}
+        """
+        response = ollama.chat(model=model, messages=[
+            {'role': 'user', 'content': prompt}
+        ])
+        hook = response['message']['content'].strip()
+        
+        # Limpiamos el texto de posibles iconos o metadatos
+        hook = re.sub(r'[^\w\s\¿\¡\?\!\,\.\-\:\;«»"]', '', hook)
+        hook = re.sub(r'\s+', ' ', hook).strip()
+
+        return hook
+
+    except Exception as e:
+        print(f"❌ Error al generar gancho con Ollama: {e}")
+        return f"«{titulo}»\n¡No te la puedes perder!"
 
 
 # ------------------ UTILIDADES TEXTO ------------------
@@ -85,12 +140,26 @@ def slugify(text: str, maxlen: int = 60) -> str:
     return (s or "title")[:maxlen]
 
 def load_fonts():
+    # NUEVO: intenta cargar una fuente personalizada
     try:
-        title_font = ImageFont.truetype("arial.ttf", 58)
-        small_font = ImageFont.truetype("arial.ttf", 40)
-    except:
+        title_font_path = FONTS_DIR / "BebasNeue-Bold.ttf"
+        if title_font_path.exists():
+            title_font = ImageFont.truetype(str(title_font_path), 58)
+        else:
+            print("⚠ Fuente BebasNeue-Bold.ttf no encontrada. Usando fuente por defecto.")
+            title_font = ImageFont.load_default()
+        
+        small_font_path = FONTS_DIR / "Arial.ttf" # o cualquier otra que prefieras
+        if small_font_path.exists():
+            small_font = ImageFont.truetype(str(small_font_path), 40)
+        else:
+            small_font = ImageFont.load_default()
+            
+    except Exception as e:
+        print(f"⚠ Error cargando fuentes: {e}. Usando fuentes por defecto.")
         title_font = ImageFont.load_default()
         small_font = ImageFont.load_default()
+        
     return title_font, small_font
 
 def wrap_fit(draw, text, font, max_width):
@@ -173,31 +242,34 @@ def make_overlay(title, fecha, hook=None):
 
     d.rectangle([0, 0, W, TOP_MARGIN], fill=(0,0,0,220))
     d.rectangle([0, H - BOTTOM_MARGIN, W, H], fill=(0,0,0,220))
+    
+    # Color del texto del título
+    title_color = (255, 255, 0, 255) # Amarillo
+    
+    # Texto del hook
+    hook_lines, hook_h = wrap_lines(d, hook or "", small_f, int(W*0.94), max_lines=2, line_spacing=LINE_SPACING)
+    y_hook = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN * 0.5) - hook_h // 2
+    for ln in hook_lines:
+        lw = d.textlength(ln, font=small_f)
+        d.text(((W - lw)//2, y_hook), ln, fill=(255,255,255,255), font=small_f)
+        _, _, _, bh = d.textbbox((0,0), ln, font=small_f)
+        y_hook += bh + LINE_SPACING
 
+    # Texto del título de la película
     t_lines, t_h = wrap_lines(d, title or "", title_f, int(W*0.94), max_lines=2, line_spacing=LINE_SPACING)
     y_title_center = int(TOP_MARGIN * TITLE_POS)
     y = y_title_center - t_h // 2
     for ln in t_lines:
         lw = d.textlength(ln, font=title_f)
-        d.text(((W - lw)//2, y), ln, fill=(255,255,255,255), font=title_f)
+        d.text(((W - lw)//2, y), ln, fill=title_color, font=title_f) # Utiliza el nuevo color aquí
         _, _, _, bh = d.textbbox((0,0), ln, font=title_f)
         y += bh + LINE_SPACING
+
 
     f_txt = f"Estreno en España: {fecha}" if fecha else ""
     f_txt = wrap_fit(d, f_txt, small_f, int(W*0.94))
     fw = d.textlength(f_txt, font=small_f)
-    y_date = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN * DATE_POS) - small_f.size // 2
-
-    if hook:
-        max_w = int(W * 0.94)
-        lines, block_h = wrap_lines(d, hook, small_f, max_w, max_lines=2, line_spacing=LINE_SPACING)
-        y_top = y_date - block_h - LINE_SPACING
-        y = y_top
-        for i, ln in enumerate(lines):
-            lw = d.textlength(ln, font=small_f)
-            d.text(((W - lw)//2, y), ln, fill=(255,255,255,255), font=small_f)
-            _, _, _, bh = d.textbbox((0,0), ln, font=small_f)
-            y += bh + (LINE_SPACING if i < len(lines)-1 else 0)
+    y_date = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN * 0.85) - small_f.size // 2
 
     d.text(((W - fw)//2, y_date), f_txt, fill=(255,255,255,255), font=small_f)
     return ov
@@ -211,36 +283,44 @@ def pick_music():
     if not MUSIC_DIR.exists():
         return None
     files = sorted(MUSIC_DIR.glob("*.mp3"))
-    return files[0] if files else None
+    # NUEVO: selecciona un archivo de música al azar
+    return random.choice(files) if files else None
 
 
 # ------------------ NARRACIÓN ------------------
 def smart_hook(sel: dict) -> str:
-    sinopsis = (sel.get("sinopsis") or "").strip()
-    generos = [g.lower() for g in (sel.get("generos") or [])]
+    """Genera un gancho basado en la sinopsis con Ollama."""
+    titulo = sel.get("titulo") or ""
+    sinopsis_generada = sel.get("sinopsis_generada") or ""
 
-    base = _first_clause(sinopsis)
-    if len(base) < 20:
-        if any(g in generos for g in ["terror", "misterio", "suspense", "thriller"]):
-            base = "Un misterio que te mantendrá en vilo"
-        elif any(g in generos for g in ["acción", "aventura"]):
-            base = "Acción y adrenalina sin descanso"
-        elif any(g in generos for g in ["comedia"]):
-            base = "Risas, enredos y mucha chispa"
-        elif any(g in generos for g in ["romance", "romántica"]):
-            base = "Un romance que enciende el corazón"
-        elif any(g in generos for g in ["animación", "familiar"]):
-            base = "Una aventura familiar llena de magia"
-        elif any(g in generos for g in ["documental"]):
-            base = "Una historia real que sorprende"
-        else:
-            base = "La historia que todos comentan"
+    if not sinopsis_generada:
+        return f"«{titulo}»\nUn adelanto especial"
 
-    base = re.sub(r'["“”]+', "", base).strip(" .,!¡¿?;:")
-    return _truncate_ellipsis(base, HOOK_MAX_CHARS)
+    try:
+        prompt = f"""
+        Basándote en la sinopsis, crea un gancho corto, de 10-15 palabras, que capture la atención para un video corto de YouTube.
+        El gancho debe ser una única frase impactante, sin mencionar el título de la película ni el reparto.
+        Escribe la respuesta solo en español.
+        
+        Sinopsis:
+        {sinopsis_generada}
+        """
+        response = ollama.chat(model='mistral', messages=[
+            {'role': 'user', 'content': prompt}
+        ])
+        hook = response['message']['content'].strip()
+        
+        # Limpieza de emojis y caracteres especiales
+        hook = re.sub(r'[^\w\s\¿\¡\?\!\,\.\-\:\;«»"]', '', hook)
+        hook = re.sub(r'\s+', ' ', hook).strip()
 
-# Modifica la firma de la función para aceptar 'sinopsis' como argumento
-def _narracion_from_sinopsis(sinopsis: str, target_words: int = 70) -> str | None:
+        return f"«{titulo}»\n{hook}"
+
+    except Exception as e:
+        print(f"❌ Error al generar gancho con Ollama: {e}")
+        return f"«{titulo}»\n¡No te la puedes perder!"
+
+def _narracion_from_synopsis(sinopsis: str, target_words: int = 80) -> str | None:
     sinopsis = _normalize_text(sinopsis)
     if not sinopsis:
         return None
@@ -248,7 +328,7 @@ def _narracion_from_sinopsis(sinopsis: str, target_words: int = 70) -> str | Non
     out, count = [], 0
     for sent in sents:
         w = len(sent.split())
-        if count + w <= target_words or count < max(20, int(target_words * 0.6)):
+        if count + w <= target_words:
             out.append(sent)
             count += w
         else:
@@ -256,40 +336,16 @@ def _narracion_from_sinopsis(sinopsis: str, target_words: int = 70) -> str | Non
     body = " ".join(out) if out else sinopsis
     return _trim_to_words(body, target_words)
 
-def _narracion_from_generos(sel: dict, target_words: int = 70) -> str:
-    generos = [g.lower() for g in (sel.get("generos") or sel.get("genres") or [])]
-    if any(g in generos for g in ["terror", "misterio", "suspense", "thriller"]):
-        base = "Un misterio que te atrapará desde el primer minuto. Secretos, giros y una verdad que nadie ve venir."
-    elif any(g in generos for g in ["acción", "aventura"]):
-        base = "Una aventura a toda mecha: persecuciones, decisiones al límite y un destino que no da tregua."
-    elif any(g in generos for g in ["comedia"]):
-        base = "Risas y enredos con un toque de ternura. Nadie sale ileso… de pasarlo bien."
-    elif any(g in generos for g in ["romance", "romántica"]):
-        base = "Un romance que prende poco a poco y estalla cuando parece imposible."
-    elif any(g in generos for g in ["animación", "familiar"]):
-        base = "Magia, amistad y una lección que se queda contigo después de los créditos."
-    elif any(g in generos for g in ["documental"]):
-        base = "Una historia real que sorprende por lo que cuenta y por cómo lo cuenta."
-    else:
-        base = "La historia de la que todos hablarán: personajes potentes, emociones a flor de piel y un final que deja huella."
-    return _trim_to_words(base, target_words)
-
-# --- Tu función _generate_synopsis_with_ai está aquí ---
-# ...
-
 def get_narracion(sel: dict) -> str | None:
-    # Primero intenta con la sinopsis de TMDb
-    sinopsis = _normalize_text(sel.get("sinopsis") or sel.get("overview") or "")
-
-    # Si no hay sinopsis, la genera con IA local
-    if not sinopsis:
-        print("🔎 Sinopsis no encontrada en TMDb. Generando con IA local...")
-        sinopsis = _generate_synopsis_with_ai(sel)
-
-    # Ahora, si tenemos una sinopsis (ya sea de TMDb o generada por IA),
-    # se la pasamos a la función que la recorta y la usa.
-    if sinopsis:
-        return _narracion_from_sinopsis(sinopsis, target_words=60)
+    """Genera una sinopsis con una IA local (Ollama)."""
+    # Usar siempre la IA para una sinopsis de alta calidad
+    print("🔎 Generando sinopsis con IA local...")
+    sinopsis_generada = _generate_narracion_with_ai(sel)
+    
+    if sinopsis_generada:
+        # Actualizamos el diccionario con la sinopsis generada para que el hook pueda usarla
+        sel["sinopsis_generada"] = sinopsis_generada
+        return _narracion_from_synopsis(sinopsis_generada, target_words=80)
         
     return None
 
@@ -348,16 +404,9 @@ def _synthesize_tts_coqui(text: str, out_wav: Path,
         return False
 
 def _compose_tts_text(narracion: str, sel: dict) -> str:
+    # NUEVO: Ya no se llama a smart_hook para evitar la repetición
     base = (narracion or "").strip()
-    cleaned = _clean_for_tts(base)
-    sents = _sentences(cleaned)
-    if not sents:
-        return smart_hook(sel) or "Próximamente en cines."
-    if len(sents) >= 2:
-        return " ".join(sents)
-    extra = smart_hook(sel)
-    extra = re.sub(r"\s+", " ", extra).strip(" .") + "."
-    return (sents[0].strip(" .") + ". " + extra).strip()
+    return _clean_for_tts(base)
 
 def _synthesize_xtts_with_pauses(text: str, out_wav: Path,
                                  model_name: str = "tts_models/multilingual/multi-dataset/xtts_v2",
@@ -409,10 +458,10 @@ def _synthesize_xtts_with_pauses(text: str, out_wav: Path,
 def _mix_audio_with_voice(video_clip, voice_audio_path: Path, music_path: Path | None,
                           music_vol: float = 0.15, fade_in: float = 0.6, fade_out: float = 0.8):
     dur_v = video_clip.duration
-    voice = AudioFileClip(str(voice_audio_path))
-    v_end = max(0.0, min(dur_v, float(voice.duration)) - 1e-3)
-    voice = voice.subclip(0, v_end)
-    tracks = [voice]
+    tracks = []
+    if voice_audio_path and voice_audio_path.exists():
+        voice = AudioFileClip(str(voice_audio_path))
+        tracks.append(voice)
 
     if music_path and music_path.exists():
         m = AudioFileClip(str(music_path))
@@ -423,11 +472,12 @@ def _mix_audio_with_voice(video_clip, voice_audio_path: Path, music_path: Path |
         m = m.audio_fadein(fade_in).audio_fadeout(fade_out).volumex(music_vol)
         tracks.append(m)
 
-    final_audio = CompositeAudioClip(tracks).subclip(0, dur_v)
-    return video_clip.set_audio(final_audio)
+    if tracks:
+        final_audio = CompositeAudioClip(tracks).subclip(0, dur_v)
+        return video_clip.set_audio(final_audio)
+    return video_clip
 
-
-# ------------------ MAIN ------------------
+# --- MAIN ---
 def main():
     if not SEL_FILE.exists() or not MANIFEST.exists():
         raise SystemExit("Falta next_release.json o assets_manifest.json.")
@@ -436,51 +486,53 @@ def main():
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
     tmdb_id = sel["tmdb_id"]
-    title   = sel.get("titulo") or sel.get("title") or ""
-    fecha   = sel.get("fecha_estreno") or ""
-    hook    = smart_hook(sel)
-
-    slug = slugify(title)
+    title = sel.get("titulo") or sel.get("title") or ""
+    fecha = sel.get("fecha_estreno") or ""
 
     narracion = get_narracion(sel)
+    hook = smart_hook(sel)
+
+    print("📜 Hook:\n", hook)
+    print("📜 Narración:\n", narracion)
+
+    slug = slugify(title)
     if narracion:
-        print("📜 Narración usada en este vídeo:\n")
-        print(narracion)
         narr_path = SHORTS_DIR / f"{tmdb_id}_{slug}_narracion.txt"
         narr_path.write_text(narracion, encoding="utf-8")
-    else:
-        print("ℹ No se pudo generar narración; continuamos solo con overlay.")
-
-    voice_wav = STATE / f"{tmdb_id}_{slug}_narracion.wav"
-    have_voice = False
+        
+    voice_path = None
     if narracion:
+        voice_path = STATE / f"{tmdb_id}_{slug}_narracion.wav"
+        
         tts_text = _compose_tts_text(narracion, sel)
-        have_voice = _synthesize_xtts_with_pauses(tts_text, voice_wav,
+        have_voice = _synthesize_xtts_with_pauses(tts_text, voice_path,
                                                   model_name="tts_models/multilingual/multi-dataset/xtts_v2",
                                                   language="es", speaker="Alma María", pause_s=0.35)
-        if have_voice and _retime_wav_ffmpeg(voice_wav, STATE / f"{tmdb_id}_{slug}_slow.wav", atempo=0.92):
-            voice_wav = STATE / f"{tmdb_id}_{slug}_slow.wav"
+        if have_voice:
+            # Retime audio if needed
+            retime_path = voice_path.with_name(voice_path.stem + "_slow.wav")
+            if _retime_wav_ffmpeg(voice_path, retime_path, atempo=0.92):
+                voice_path = retime_path
         if not have_voice:
             print("↪ XTTS falló, probando VITS (ES)…")
-            have_voice = _synthesize_tts_coqui(tts_text, voice_wav,
-                                               model_name="tts_models/es/css10/vits",
-                                               language="es", speaker=None)
-
-    poster    = man.get("poster_vertical") or man.get("poster")
-    backdrops = (man.get("backdrops_vertical") or man.get("backdrops") or [])
-    if not poster and not backdrops:
-        raise SystemExit("No hay ni poster ni backdrops en el manifest.")
+            if _synthesize_tts_coqui(tts_text, voice_path,
+                                     model_name="tts_models/es/css10/vits",
+                                     language="es", speaker=None):
+                have_voice = True
+    
+    # Clips de imagen
+    poster = man.get("poster_vertical") or man.get("poster")
+    backdrops = man.get("backdrops_vertical") or man.get("backdrops") or []
     if poster and not backdrops:
-        backdrops = [poster] * min(5, MAX_BACKDROPS)
-
+        backdrops = [poster]*min(5, MAX_BACKDROPS)
     intro = clip_from_img(ROOT / poster, INTRO_DUR) if poster else None
+
     ov_path = STATE / f"overlay_static_{tmdb_id}.png"
     make_overlay(title, fecha, hook).save(ov_path, "PNG")
 
     def compose(base_img: Path) -> Path:
         base = Image.open(base_img).convert("RGB")
-        comp = Image.alpha_composite(base.convert("RGBA"),
-                                     Image.open(ov_path).convert("RGBA")).convert("RGB")
+        comp = Image.alpha_composite(base.convert("RGBA"), Image.open(ov_path).convert("RGBA")).convert("RGB")
         out = STATE / f"bd_{tmdb_id}_{base_img.stem}_ov.jpg"
         comp.save(out, "JPEG", quality=92)
         return out
@@ -488,40 +540,20 @@ def main():
     bd_paths = [compose(ROOT / b) for b in backdrops]
 
     n = len(bd_paths)
-    per_bd = max(2.0, (TARGET_SECONDS - (INTRO_DUR if intro else 0.0)) / n)
-    total = (INTRO_DUR if intro else 0.0) + per_bd * n
-    adjust = TARGET_SECONDS - total
+    per_bd = max(1.0, min(3.5, (TARGET_SECONDS - (INTRO_DUR if intro else 0))/max(1,n)))
+    clips = [clip_from_img(p, per_bd) for p in bd_paths]
+    if intro: clips.insert(0, intro)
+    final_clip = concatenate_videoclips(clips, method="compose")
 
-    clips = []
-    if intro: clips.append(intro)
-    for i, p in enumerate(bd_paths, 1):
-        dur = per_bd + (adjust if i == n else 0.0)
-        clips.append(clip_from_img(p, dur))
+    # Audio
+    music_file = pick_music()
+    final_clip = _mix_audio_with_voice(final_clip, voice_path, music_file, music_vol=MUSIC_VOL,
+                                     fade_in=FADE_IN, fade_out=FADE_OUT)
 
-    video = concatenate_videoclips(clips, method="compose")
-    out_path = SHORTS_DIR / f"{tmdb_id}_{slug}.mp4"
-
-    music_path = pick_music()
-    if have_voice:
-        video = _mix_audio_with_voice(video, voice_wav, music_path,
-                                      music_vol=0.15, fade_in=FADE_IN, fade_out=FADE_OUT)
-    elif music_path and music_path.exists():
-        music = AudioFileClip(str(music_path))
-        if music.duration < video.duration:
-            music = afx.audio_loop(music, duration=video.duration)
-        else:
-            music = music.subclip(0, video.duration)
-        music = music.audio_fadein(FADE_IN).audio_fadeout(FADE_OUT).volumex(MUSIC_VOL)
-        video = video.set_audio(music)
-
-    video.write_videofile(str(out_path),
-                          fps=30, codec="libx264", audio_codec="aac",
-                          threads=4, preset="medium", bitrate="4000k",
-                          ffmpeg_params=["-movflags", "+faststart"])
-    print("✅ Short generado:", out_path)
-    print(f"   Duración total: {video.duration:.2f}s (objetivo {TARGET_SECONDS:.2f}s)")
-    return str(out_path)
-
+    out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
+    final_clip.write_videofile(str(out_file), fps=30, codec="libx264", audio_codec="aac")
+    print("🎬 Short generado en:", out_file)
+    return str(out_file)
 
 if __name__ == "__main__":
     main()
