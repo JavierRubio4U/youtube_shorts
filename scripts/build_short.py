@@ -2,6 +2,7 @@
 import json, re, unicodedata, subprocess
 import random
 from pathlib import Path
+import logging
 
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import (
@@ -128,7 +129,7 @@ def _generate_hook_with_ai(sel: dict, model='mistral') -> str | None:
 
     except Exception as e:
         print(f"❌ Error al generar gancho con Ollama: {e}")
-        return f"«{titulo}»\n¡No te la puedes perder!"
+        return f"¡No te la puedes perder!"
 
 
 # ------------------ UTILIDADES TEXTO ------------------
@@ -240,135 +241,72 @@ def make_overlay(title, fecha, hook=None):
     ov = Image.new("RGBA", (W, H), (0,0,0,0))
     d = ImageDraw.Draw(ov)
 
+    # Dibuja los fondos semi-transparentes
     d.rectangle([0, 0, W, TOP_MARGIN], fill=(0,0,0,220))
-    d.rectangle([0, H - BOTTOM_MARGIN, W, H], fill=(0,0,0,220))
-    
-    # Color del texto del título
-    title_color = (255, 255, 0, 255) # Amarillo
-    
+    d.rectangle([0, H-BOTTOM_MARGIN, W, H], fill=(0,0,0,220))
+
+    # Función para dibujar texto con contorno
+    def draw_outlined_text(pos, text, font, fill_color, outline_color=(0, 0, 0, 255), outline_width=2):
+        x, y = pos
+        # Dibuja el contorno
+        for dx, dy in [(-outline_width, 0), (outline_width, 0), (0, -outline_width), (0, outline_width)]:
+            d.text((x + dx, y + dy), text, font=font, fill=outline_color)
+        # Dibuja el texto principal
+        d.text(pos, text, font=font, fill=fill_color)
+
     # Texto del hook
-    hook_lines, hook_h = wrap_lines(d, hook or "", small_f, int(W*0.94), max_lines=2, line_spacing=LINE_SPACING)
-    y_hook = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN * 0.5) - hook_h // 2
+    hook_lines, hook_h = wrap_lines(d, hook or "", small_f, int(W*0.94))
+    y_hook = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN*0.5) - hook_h//2
     for ln in hook_lines:
         lw = d.textlength(ln, font=small_f)
-        d.text(((W - lw)//2, y_hook), ln, fill=(255,255,255,255), font=small_f)
+        draw_outlined_text(((W-lw)//2, y_hook), ln, small_f, (255,255,255,255))
         _, _, _, bh = d.textbbox((0,0), ln, font=small_f)
         y_hook += bh + LINE_SPACING
 
-    # Texto del título de la película
-    t_lines, t_h = wrap_lines(d, title or "", title_f, int(W*0.94), max_lines=2, line_spacing=LINE_SPACING)
+    # Título
+    t_lines, t_h = wrap_lines(d, title or "", title_f, int(W*0.94))
     y_title_center = int(TOP_MARGIN * TITLE_POS)
-    y = y_title_center - t_h // 2
+    y = y_title_center - t_h//2
     for ln in t_lines:
         lw = d.textlength(ln, font=title_f)
-        d.text(((W - lw)//2, y), ln, fill=title_color, font=title_f) # Utiliza el nuevo color aquí
+        draw_outlined_text(((W-lw)//2, y), ln, title_f, (255,255,0,255))
         _, _, _, bh = d.textbbox((0,0), ln, font=title_f)
         y += bh + LINE_SPACING
 
-
+    # Fecha
     f_txt = f"Estreno en España: {fecha}" if fecha else ""
     f_txt = wrap_fit(d, f_txt, small_f, int(W*0.94))
     fw = d.textlength(f_txt, font=small_f)
-    y_date = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN * 0.85) - small_f.size // 2
+    y_date = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN*0.85) - small_f.size//2
+    draw_outlined_text(((W-fw)//2, y_date), f_txt, small_f, (255,255,0,255)) # Cambio aquí
 
-    d.text(((W - fw)//2, y_date), f_txt, fill=(255,255,255,255), font=small_f)
     return ov
 
 
-# ------------------ CLIPS ------------------
+# ------------------ CLIPS y AUDIO ------------------
 def clip_from_img(path: Path, dur: float) -> ImageClip:
-    return ImageClip(str(path)).set_duration(dur).resize((W, H))
+    return ImageClip(str(path)).set_duration(dur).resize((W,H))
 
 def pick_music():
-    if not MUSIC_DIR.exists():
-        return None
+    if not MUSIC_DIR.exists(): return None
     files = sorted(MUSIC_DIR.glob("*.mp3"))
-    # NUEVO: selecciona un archivo de música al azar
     return random.choice(files) if files else None
 
-
-# ------------------ NARRACIÓN ------------------
-def smart_hook(sel: dict) -> str:
-    """Genera un gancho basado en la sinopsis con Ollama."""
-    titulo = sel.get("titulo") or ""
-    sinopsis_generada = sel.get("sinopsis_generada") or ""
-
-    if not sinopsis_generada:
-        return f"«{titulo}»\nUn adelanto especial"
-
-    try:
-        prompt = f"""
-        Basándote en la sinopsis, crea un gancho corto, de 10-15 palabras, que capture la atención para un video corto de YouTube.
-        El gancho debe ser una única frase impactante, sin mencionar el título de la película ni el reparto.
-        Escribe la respuesta solo en español.
-        
-        Sinopsis:
-        {sinopsis_generada}
-        """
-        response = ollama.chat(model='mistral', messages=[
-            {'role': 'user', 'content': prompt}
-        ])
-        hook = response['message']['content'].strip()
-        
-        # Limpieza de emojis y caracteres especiales
-        hook = re.sub(r'[^\w\s\¿\¡\?\!\,\.\-\:\;«»"]', '', hook)
-        hook = re.sub(r'\s+', ' ', hook).strip()
-
-        return f"«{titulo}»\n{hook}"
-
-    except Exception as e:
-        print(f"❌ Error al generar gancho con Ollama: {e}")
-        return f"«{titulo}»\n¡No te la puedes perder!"
-
-def _narracion_from_synopsis(sinopsis: str, target_words: int = 80) -> str | None:
-    sinopsis = _normalize_text(sinopsis)
-    if not sinopsis:
-        return None
-    sents = _sentences(sinopsis) or [sinopsis]
-    out, count = [], 0
-    for sent in sents:
-        w = len(sent.split())
-        if count + w <= target_words:
-            out.append(sent)
-            count += w
-        else:
-            break
-    body = " ".join(out) if out else sinopsis
-    return _trim_to_words(body, target_words)
-
-def get_narracion(sel: dict) -> str | None:
-    """Genera una sinopsis con una IA local (Ollama)."""
-    # Usar siempre la IA para una sinopsis de alta calidad
-    print("🔎 Generando sinopsis con IA local...")
-    sinopsis_generada = _generate_narracion_with_ai(sel)
-    
-    if sinopsis_generada:
-        # Actualizamos el diccionario con la sinopsis generada para que el hook pueda usarla
-        sel["sinopsis_generada"] = sinopsis_generada
-        return _narracion_from_synopsis(sinopsis_generada, target_words=80)
-        
-    return None
-
-
-# ------------------ TTS ------------------
 def _clean_for_tts(text: str) -> str:
-    if not text:
-        return ""
+    if not text: return ""
     text = re.sub(r"http[s]?://\S+", "", text)
-    text = re.sub(r"\s+", " ", text).replace("—", "-").replace("–", "-")
+    text = re.sub(r"\s+", " ", text).replace("—","-").replace("–","-")
     text = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ,\.\-\!\?\:\;\'\"]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()[:900]
 
 def _retime_wav_ffmpeg(in_wav: Path, out_wav: Path, atempo: float = 0.92) -> bool:
     try:
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-               "-i", str(in_wav),
-               "-filter:a", f"atempo={atempo}",
-               str(out_wav)]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+               "-i", str(in_wav), "-filter:a", f"atempo={atempo}", str(out_wav)]
+        res = subprocess.run(cmd, check=True, capture_output=True)
         return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 0
     except Exception as e:
-        print("⚠ _retime_wav_ffmpeg error:", e)
+        logging.error(f"Error en _retime_wav_ffmpeg: {e}")
         return False
 
 def _concat_wav_ffmpeg(inputs: list[Path], out_wav: Path) -> bool:
@@ -378,82 +316,69 @@ def _concat_wav_ffmpeg(inputs: list[Path], out_wav: Path) -> bool:
     n = len(inputs)
     filt = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[outa]"
     cmd += ["-filter_complex", filt, "-map", "[outa]", str(out_wav)]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = subprocess.run(cmd, check=True, capture_output=True)
     return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 0
 
-def _synthesize_tts_coqui(text: str, out_wav: Path,
-                          model_name: str = "tts_models/multilingual/multi-dataset/xtts_v2",
-                          language: str = "es",
-                          speaker: str | None = None) -> bool:
+def _synthesize_tts_coqui(text: str, out_wav: Path) -> Path | None:
     try:
         from TTS.api import TTS
-    except Exception as e:
-        print(f"ℹ Coqui TTS no instalado: {e}")
-        return False
+    except ImportError:
+        logging.error("Coqui TTS no está instalado. No se generará audio de voz.")
+        return None
     try:
-        clean = _clean_for_tts(text)
-        if not clean: return False
-        tts = TTS(model_name=model_name, progress_bar=False, gpu=False)
-        if "xtts_v2" in model_name:
-            tts.tts_to_file(text=clean, file_path=str(out_wav), language=language, speaker=speaker)
-        else:
-            tts.tts_to_file(text=clean, file_path=str(out_wav))
-        return out_wav.exists() and out_wav.stat().st_size > 0
+        cleaned_text = _clean_for_tts(text)
+        if not cleaned_text:
+            return None
+        tts = TTS(model_name="tts_models/es/css10/vits", progress_bar=False, gpu=False)
+        tts.tts_to_file(text=cleaned_text, file_path=str(out_wav), language="es")
+        if out_wav.exists() and out_wav.stat().st_size > 0:
+            return out_wav
     except Exception as e:
-        print(f"⚠ Error Coqui TTS: {e}")
-        return False
+        logging.error(f"Error en la síntesis de voz con VITS: {e}")
+    return None
 
-def _compose_tts_text(narracion: str, sel: dict) -> str:
-    # NUEVO: Ya no se llama a smart_hook para evitar la repetición
-    base = (narracion or "").strip()
-    return _clean_for_tts(base)
 
-def _synthesize_xtts_with_pauses(text: str, out_wav: Path,
-                                 model_name: str = "tts_models/multilingual/multi-dataset/xtts_v2",
-                                 language: str = "es",
-                                 speaker: str | None = "Alma María",
-                                 pause_s: float = 0.35) -> bool:
+def _synthesize_xtts_with_pauses(text: str, out_wav: Path) -> Path | None:
     try:
         from TTS.api import TTS
-    except Exception as e:
-        print(f"ℹ Coqui TTS no instalado: {e}")
-        return False
+    except ImportError:
+        logging.error("Coqui TTS no está instalado. No se generará audio de voz.")
+        return None
 
-    cleaned = _clean_for_tts(text)
-    sents = _sentences(cleaned) or [cleaned]
-    tmp_parts = []
+    cleaned_text = _clean_for_tts(text)
+    if not cleaned_text:
+        return None
+    
+    sents = _sentences(cleaned_text) or [cleaned_text]
+    
     try:
-        tts = TTS(model_name=model_name, progress_bar=False, gpu=False)
+        tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=False, gpu=False)
+        
+        tmp_parts = []
         for i, s in enumerate(sents, 1):
-            part = STATE / f"_xtts_part_{i}.wav"
-            tts.tts_to_file(text=s, file_path=str(part), language=language, speaker=speaker)
-            if not part.exists() or part.stat().st_size == 0:
-                return False
-            tmp_parts.append(part)
+            part_path = STATE / f"_xtts_part_{i}.wav"
+            tts.tts_to_file(text=s, file_path=str(part_path), language="es", speaker="Alma María")
+            if not part_path.exists(): raise FileNotFoundError
+            tmp_parts.append(part_path)
+        
+        silence_path = STATE / "_xtts_silence.wav"
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.35", "-q:a", "9", str(silence_path)], check=True, capture_output=True)
+        
+        seq = []
+        for i, p in enumerate(tmp_parts):
+            seq.append(p)
+            if i < len(tmp_parts) - 1:
+                seq.append(silence_path)
+        
+        if _concat_wav_ffmpeg(seq, out_wav):
+            for p in set(tmp_parts + [silence_path]):
+                p.unlink()
+            return out_wav
+        
     except Exception as e:
-        print("⚠ Error XTTS por frases:", e)
-        return False
-
-    sil = STATE / "_xtts_silence.wav"
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-           "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", f"{pause_s}",
-           str(sil)]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0 or not sil.exists():
-        return False
-
-    seq = []
-    for i, p in enumerate(tmp_parts):
-        seq.append(p)
-        if i < len(tmp_parts) - 1:
-            seq.append(sil)
-
-    ok = _concat_wav_ffmpeg(seq, out_wav)
-    for p in set(tmp_parts + [sil]):
-        try: p.unlink()
-        except: pass
-    return ok
-
+        logging.error(f"Error en la síntesis XTTS: {e}")
+    
+    return None
 
 def _mix_audio_with_voice(video_clip, voice_audio_path: Path, music_path: Path | None,
                           music_vol: float = 0.15, fade_in: float = 0.6, fade_out: float = 0.8):
@@ -479,80 +404,86 @@ def _mix_audio_with_voice(video_clip, voice_audio_path: Path, music_path: Path |
 
 # --- MAIN ---
 def main():
+    SEL_FILE = STATE / "next_release.json"
+    MANIFEST = STATE / "assets_manifest.json"
     if not SEL_FILE.exists() or not MANIFEST.exists():
         raise SystemExit("Falta next_release.json o assets_manifest.json.")
 
     sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
     man = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-    tmdb_id = sel["tmdb_id"]
+    tmdb_id = sel.get("tmdb_id", "unknown")
     title = sel.get("titulo") or sel.get("title") or ""
     fecha = sel.get("fecha_estreno") or ""
-
-    narracion = get_narracion(sel)
-    hook = smart_hook(sel)
-
-    print("📜 Hook:\n", hook)
-    print("📜 Narración:\n", narracion)
-
     slug = slugify(title)
-    if narracion:
-        narr_path = SHORTS_DIR / f"{tmdb_id}_{slug}_narracion.txt"
-        narr_path.write_text(narracion, encoding="utf-8")
-        
+
+    # Paso 1: Generar narración y hook
+    logging.info("Generando sinopsis y hook con IA...")
+    narracion_generada = _generate_narracion_with_ai(sel)
+    sel["sinopsis_generada"] = narracion_generada # Guardamos para el hook
+    hook = _generate_hook_with_ai(sel)
+    
+    narracion = _trim_to_words(narracion_generada, max_words=80) if narracion_generada else None
+
+    
+    if not narracion:
+        logging.warning("No se pudo generar una narración de IA. Usando un gancho genérico.")
+        hook = f"«{title}»\n¡No te la puedes perder!"
+
+    logging.info(f"Hook generado: {hook}")
+    logging.info(f"Narración generada: {narracion[:100]}...") if narracion else logging.info("No se generó narración.")
+
+    # Paso 2: Generar audio de voz si es posible
     voice_path = None
     if narracion:
         voice_path = STATE / f"{tmdb_id}_{slug}_narracion.wav"
+        if not voice_path.exists():
+            voice_path = _synthesize_xtts_with_pauses(narracion, voice_path) or _synthesize_tts_coqui(narracion, voice_path)
         
-        tts_text = _compose_tts_text(narracion, sel)
-        have_voice = _synthesize_xtts_with_pauses(tts_text, voice_path,
-                                                  model_name="tts_models/multilingual/multi-dataset/xtts_v2",
-                                                  language="es", speaker="Alma María", pause_s=0.35)
-        if have_voice:
-            # Retime audio if needed
-            retime_path = voice_path.with_name(voice_path.stem + "_slow.wav")
-            if _retime_wav_ffmpeg(voice_path, retime_path, atempo=0.92):
-                voice_path = retime_path
-        if not have_voice:
-            print("↪ XTTS falló, probando VITS (ES)…")
-            if _synthesize_tts_coqui(tts_text, voice_path,
-                                     model_name="tts_models/es/css10/vits",
-                                     language="es", speaker=None):
-                have_voice = True
-    
-    # Clips de imagen
-    poster = man.get("poster_vertical") or man.get("poster")
-    backdrops = man.get("backdrops_vertical") or man.get("backdrops") or []
-    if poster and not backdrops:
-        backdrops = [poster]*min(5, MAX_BACKDROPS)
-    intro = clip_from_img(ROOT / poster, INTRO_DUR) if poster else None
+        if voice_path:
+            logging.info(f"Audio de voz generado con duración de {AudioFileClip(str(voice_path)).duration:.2f} segundos.")
+        else:
+            logging.warning("No se pudo generar el audio de voz. El vídeo no tendrá narración.")
 
+    # Paso 3: Generar el overlay (título, gancho, etc.)
     ov_path = STATE / f"overlay_static_{tmdb_id}.png"
     make_overlay(title, fecha, hook).save(ov_path, "PNG")
 
-    def compose(base_img: Path) -> Path:
-        base = Image.open(base_img).convert("RGB")
-        comp = Image.alpha_composite(base.convert("RGBA"), Image.open(ov_path).convert("RGBA")).convert("RGB")
-        out = STATE / f"bd_{tmdb_id}_{base_img.stem}_ov.jpg"
-        comp.save(out, "JPEG", quality=92)
-        return out
+    # Paso 4: Preparar clips de vídeo
+    poster = man.get("poster_vertical") or man.get("poster")
+    backdrops = man.get("backdrops_vertical") or man.get("backdrops") or []
+    
+    # Asegura que haya backdrops si solo hay póster
+    if poster and not backdrops:
+        backdrops = [poster]*min(5, MAX_BACKDROPS)
+    
+    bd_paths = [ROOT / b for b in backdrops if (ROOT / b).exists()]
+    if not bd_paths:
+        logging.warning("No hay backdrops válidos. Usando póster como fallback.")
+        bd_paths = [ROOT / poster] if poster and (ROOT / poster).exists() else []
 
-    bd_paths = [compose(ROOT / b) for b in backdrops]
-
-    n = len(bd_paths)
-    per_bd = max(1.0, min(3.5, (TARGET_SECONDS - (INTRO_DUR if intro else 0))/max(1,n)))
+    intro = clip_from_img(ROOT / poster, INTRO_DUR) if poster and (ROOT / poster).exists() else None
+    
+    # Paso 5: Calcular la duración del vídeo y generar clips
+    audio_dur = AudioFileClip(str(voice_path)).duration if voice_path else 0
+    video_dur = audio_dur + (INTRO_DUR if intro else 0)
+    video_dur = min(video_dur, TARGET_SECONDS)
+    
+    n_bd = len(bd_paths)
+    per_bd = (video_dur - (INTRO_DUR if intro else 0)) / max(1, n_bd)
     clips = [clip_from_img(p, per_bd) for p in bd_paths]
     if intro: clips.insert(0, intro)
+    
     final_clip = concatenate_videoclips(clips, method="compose")
 
-    # Audio
+    # Paso 6: Mezclar el audio y exportar
     music_file = pick_music()
     final_clip = _mix_audio_with_voice(final_clip, voice_path, music_file, music_vol=MUSIC_VOL,
                                      fade_in=FADE_IN, fade_out=FADE_OUT)
 
     out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
     final_clip.write_videofile(str(out_file), fps=30, codec="libx264", audio_codec="aac")
-    print("🎬 Short generado en:", out_file)
+    logging.info(f"🎬 Short generado en: {out_file}")
     return str(out_file)
 
 if __name__ == "__main__":

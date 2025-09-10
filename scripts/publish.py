@@ -2,6 +2,7 @@
 from pathlib import Path
 import sys, json
 
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -27,9 +28,10 @@ def main():
     mp4_path = build_short.main()
 
     print("▶ Upload a YouTube…")
+    
+    # NUEVO: llamar a upload_youtube y guardar el ID del video
     video_id = upload_youtube.main(mp4_path)
     
-    # Añade una verificación antes de marcar como publicado
     if video_id:
         # marca como publicado
         meta = json.loads((STATE / "youtube_metadata.json").read_text(encoding="utf-8"))
