@@ -1,3 +1,4 @@
+# scripts/select_next_release.py
 import json
 from pathlib import Path
 from datetime import datetime
@@ -17,6 +18,9 @@ PUBLISHED_FILE = STATE_DIR / "published.json"
 NEXT_FILE = STATE_DIR / "next_release.json"
 
 import re
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 def _is_latin_text(text: str) -> bool:
     """Devuelve True si el texto contiene al menos un 50% de caracteres latinos."""
@@ -32,6 +36,7 @@ def _load_state():
 
 def _save_state(state):
     PUBLISHED_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    logging.info(f"Estado guardado en {PUBLISHED_FILE} con published_ids: {state.get('published_ids')}")
 
 def _seed_with_previous_pick(state):
     """Si hay un next_release previo, métele su id en picked_ids para no repetir en esta ejecución."""
@@ -41,8 +46,9 @@ def _seed_with_previous_pick(state):
             pid = int(prev.get("tmdb_id"))
             if pid and pid not in state.get("picked_ids", []):
                 state.setdefault("picked_ids", []).append(pid)
-        except Exception:
-            pass
+                logging.info(f"ID previo {pid} añadido a picked_ids")
+        except Exception as e:
+            logging.warning(f"Error al leer next_release.json: {e}")
     return state
 
 def pick_next():
@@ -52,31 +58,19 @@ def pick_next():
     published = set(state.get("published_ids", []))
     picked = set(state.get("picked_ids", []))
     exclude = published | picked
+    logging.info(f"IDs excluidas (published + picked): {exclude}")
 
-    movies = get_week_releases_enriched()  # ordenadas por HYPE desc
-    
+    movies = get_week_releases_enriched()
+    logging.info(f"Candidatos totales: {len(movies)}")
 
-    print("--- Análisis de candidatos ---")
-    for m in movies:
-        tiene_titulo = bool(m["titulo"])
-        tiene_backdrops = bool(len(m["backdrops"]) >= 4)
-        
-        cumple_requisitos = tiene_titulo and tiene_backdrops
-        
-        print(f"- {m['titulo']}:")
-        print(f"  - Título válido: {'✅' if tiene_titulo else '❌'}")
-        print(f"  - Backdrops (>=4): {'✅' if tiene_backdrops else '❌'} ({len(m['backdrops'])})")
-        if not cumple_requisitos:
-            print("  - Razón: no cumple todos los requisitos.")
-        
-    print("--- Fin de análisis ---")
+    # Filtrar solo películas con tráiler disponible
+    eligible_movies = [m for m in movies if m["id"] not in exclude and m["titulo"] and len(m["backdrops"]) >= 4 and m.get("trailer") and m["trailer"]]
+    logging.info(f"Candidatos con tráiler: {len(eligible_movies)}")
 
-    candidate = next((m for m in movies if m["id"] not in exclude and m["titulo"] and len(m["backdrops"]) >= 4), None)
+    candidate = next((m for m in eligible_movies), None)
     if not candidate:
-        print("No hay candidatos nuevos (todo publicado o ya elegido).")
+        logging.warning("No hay candidatos nuevos con tráiler disponible (todo publicado o ya elegido).")
         return None
-
-
 
     payload = {
         "tmdb_id": candidate["id"],
@@ -100,6 +94,7 @@ def pick_next():
     }
 
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    logging.info(f"Siguiente selección guardada en {NEXT_FILE} con tmdb_id: {candidate['id']}")
 
     # Actualiza picked_ids (histórico acotado)
     picked_list = state.get("picked_ids", [])
@@ -112,14 +107,16 @@ def pick_next():
     print("  Trailer:", payload["trailer_url"])
     return payload
 
-def mark_published(tmdb_id: int):
+def mark_published(tmdb_id: int, simulate=False):
     state = _load_state()
     if tmdb_id not in state.get("published_ids", []):
         state.setdefault("published_ids", []).append(tmdb_id)
         state["published_ids"] = sorted(set(state["published_ids"]))
-        _save_state(state)
-        print("📝 Marcado como publicado:", tmdb_id)
+        if not simulate:
+            _save_state(state)
+        logging.info(f"ID {tmdb_id} marcado como publicado{' (simulado)' if simulate else ''}")
     else:
+        logging.info(f"ID {tmdb_id} ya estaba publicado")
         print("(ya estaba publicado)", tmdb_id)
 
 if __name__ == "__main__":

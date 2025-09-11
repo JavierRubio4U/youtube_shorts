@@ -1,5 +1,5 @@
 # scripts/download_assets.py
-import json
+import json, logging
 import re
 from pathlib import Path
 import requests
@@ -147,15 +147,18 @@ def main():
     # Póster
     if posters:
         p_url = posters[0]
-        p_name = f"{tmdb_id}_{slug}_poster.jpg"
+        p_name = f"{tmdb_id}_poster.jpg"  # Usar solo tmdb_id para consistencia
         p_path = POSTERS_DIR / p_name
         p_saved = download_image(p_url, p_path)
         if p_saved:
+            logging.info(f"Póster descargado en: {p_path}")
             out["poster"] = str(p_saved.relative_to(ROOT))
             pv_path = POSTERS_V_DIR / p_name.replace("_poster", "_poster_v")
             pv_saved = make_poster_vertical(p_saved, pv_path)
             if pv_saved:
                 out["poster_vertical"] = str(pv_saved.relative_to(ROOT))
+        else:
+            logging.error(f"Fallo al descargar póster para tmdb_id {tmdb_id} desde {p_url}")
 
     # Backdrops (ahora en cuadrado centrado sobre 9:16)
     for i, b_url in enumerate(backdrops, 1):

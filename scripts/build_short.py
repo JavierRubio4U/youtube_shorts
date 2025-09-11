@@ -1,490 +1,292 @@
 # scripts/build_short.py
-import json, re, unicodedata, subprocess
-import random
+import time
+import unicodedata
+import tempfile 
+import imagehash
 from pathlib import Path
-import logging
-
+import sys, json, os, logging, re
+from moviepy.editor import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip
 from PIL import Image, ImageDraw, ImageFont
-from moviepy.editor import (
-    ImageClip, concatenate_videoclips, AudioFileClip, CompositeAudioClip
-)
-import moviepy.audio.fx.all as afx
-import math
+import numpy as np
+from overlay import make_overlay_image  # Asumiendo que está en overlay.py
+from ai_narration import generate_narration  # Asumiendo que está en ai_narration.py
 
-# --- Compatibilidad Pillow >=10 con MoviePy 1.0.3 ---
-from PIL import Image
-if not hasattr(Image, "ANTIALIAS"):
-    Image.ANTIALIAS = Image.Resampling.LANCZOS
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# --- Rutas y dirs ---
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
-STATE.mkdir(parents=True, exist_ok=True)
 SHORTS_DIR = ROOT / "output" / "shorts"
-SHORTS_DIR.mkdir(parents=True, exist_ok=True)
-
-MUSIC_DIR = (ROOT / "assets" / "music")
-FONTS_DIR = (ROOT / "assets" / "fonts")
-
-# Parámetros generales
-MUSIC_VOL = 0.28
-FADE_IN  = 0.6
-FADE_OUT = 0.8
-
+MANIFEST = ROOT / "assets" / "assets_manifest.json"
 SEL_FILE = STATE / "next_release.json"
-MANIFEST = STATE / "assets_manifest.json"
 
-W, H = 1080, 1920
+W, H = 1080, 1920  # Ancho y alto para formato vertical 9:16
+INTRO_DURATION = 4  # Duración de la intro con la imagen
+CLIP_DURATION = 6  # Duración de los clips de video (consistente con Paso 2.5)
+MAX_BACKDROPS = 8  # Máximo de backdrops o clips
+HASH_SIMILARITY_THRESHOLD = 5  # Umbral de distancia Hamming
 
-# Duraciones
-INTRO_DUR = 4.0
-TARGET_SECONDS = 28.0
-MAX_BACKDROPS = 9
-
-# Bandas negras
-TOP_MARGIN = 420
-BOTTOM_MARGIN = 420
-
-# Posiciones relativas
-TITLE_POS = 0.40
-DATE_POS  = 0.40
-LINE_SPACING = 10
-
-HOOK_MAX_CHARS = 90
-
-
-import ollama
-from langdetect import detect, DetectorFactory
-
-# Para resultados consistentes
-DetectorFactory.seed = 0
-
-def _translate_with_ai(text: str, model='mistral') -> str | None:
-    """Traduce un texto usando un modelo local de Ollama."""
-    try:
-        prompt = f"""Traduce el siguiente texto al español de forma natural, sin añadir ninguna explicación adicional:
-        {text}
-        """
-        response = ollama.chat(model=model, messages=[
-            {'role': 'user', 'content': prompt}
-        ])
-        
-        # Elimina cualquier texto de traducción automática
-        translated_text = response['message']['content'].strip()
-        translated_text = re.sub(r'\(.*?\)', '', translated_text)
-        return translated_text.strip()
-    except Exception as e:
-        print(f"❌ Error al traducir el título con Ollama: {e}")
-        return None
-
-def _generate_narracion_with_ai(sel: dict, model='mistral') -> str | None:
-    """Genera una sinopsis larga y limpia con Ollama."""
-    try:
-        prompt = f"""
-        Genera una sinopsis detallada y atractiva de 70-80 palabras en español para la siguiente película.
-        La sinopsis debe ser un párrafo cohesivo y no debe listar el título, los géneros, el reparto ni ninguna otra metadata.
-        Utiliza la siguiente información para inspirarte:
-        
-        Título: {sel.get("titulo")}
-        Sinopsis original: {sel.get("sinopsis")}
-        Géneros: {', '.join(sel.get("generos"))}
-        Palabras clave: {', '.join(sel.get("keywords"))}
-        """
-        response = ollama.chat(model=model, messages=[
-            {'role': 'user', 'content': prompt}
-        ])
-        narracion = response['message']['content']
-        # Limpieza adicional para eliminar posibles metadatos
-        narracion = re.sub(r'(Título|Géneros|Reparto|Sinopsis original):.*$', '', narracion, flags=re.MULTILINE).strip()
-        narracion = re.sub(r'[^\w\s\¿\¡\?\!\,\.\-\:\;«»"]', '', narracion)
-        return _normalize_text(narracion)
-
-    except Exception as e:
-        print(f"❌ Error al generar sinopsis con Ollama: {e}")
-        return None
-
-def _generate_hook_with_ai(sel: dict, model='mistral') -> str | None:
-    """Genera un gancho corto con Ollama."""
-    try:
-        prompt = f"""
-        Basándote en el título y la sinopsis de la película, crea un gancho corto y llamativo para un short de YouTube.
-        El gancho debe ser una única frase impactante de no más de 15 palabras.
-        No incluyas el título de la película.
-        
-        Información de la película:
-        - Título: {sel.get('titulo')}
-        - Sinopsis: {sel.get('sinopsis')}
-        - Géneros: {', '.join(sel.get('generos'))}
-        """
-        response = ollama.chat(model=model, messages=[
-            {'role': 'user', 'content': prompt}
-        ])
-        hook = response['message']['content'].strip()
-        
-        # Limpiamos el texto de posibles iconos o metadatos
-        hook = re.sub(r'[^\w\s\¿\¡\?\!\,\.\-\:\;«»"]', '', hook)
-        hook = re.sub(r'\s+', ' ', hook).strip()
-
-        return hook
-
-    except Exception as e:
-        print(f"❌ Error al generar gancho con Ollama: {e}")
-        return f"¡No te la puedes perder!"
-
-
-# ------------------ UTILIDADES TEXTO ------------------
 def slugify(text: str, maxlen: int = 60) -> str:
+    """Convierte texto en un slug seguro para nombres de archivo."""
     s = (text or "").lower().strip()
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
-    s = re.sub(r"[^\w\s-]", "", s)
-    s = re.sub(r"[\s_-]+", "-", s).strip("-")
+    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    s = re.sub(r'[^\w\s-]', '', s)
+    s = re.sub(r'[\s_-]+', '-', s).strip('-')
     return (s or "title")[:maxlen]
 
-def load_fonts():
-    # NUEVO: intenta cargar una fuente personalizada
-    try:
-        title_font_path = FONTS_DIR / "BebasNeue-Bold.ttf"
-        if title_font_path.exists():
-            title_font = ImageFont.truetype(str(title_font_path), 58)
-        else:
-            print("⚠ Fuente BebasNeue-Bold.ttf no encontrada. Usando fuente por defecto.")
-            title_font = ImageFont.load_default()
-        
-        small_font_path = FONTS_DIR / "Arial.ttf" # o cualquier otra que prefieras
-        if small_font_path.exists():
-            small_font = ImageFont.truetype(str(small_font_path), 40)
-        else:
-            small_font = ImageFont.load_default()
-            
-    except Exception as e:
-        print(f"⚠ Error cargando fuentes: {e}. Usando fuentes por defecto.")
-        title_font = ImageFont.load_default()
-        small_font = ImageFont.load_default()
-        
-    return title_font, small_font
-
-def wrap_fit(draw, text, font, max_width):
-    if not text: return ""
-    txt = text.strip()
-    while draw.textlength(txt, font=font) > max_width and len(txt) > 4:
-        txt = txt[:-1]
-    if draw.textlength(txt, font=font) > max_width:
-        txt = txt[: max(0, len(txt)-3)] + "..."
-    return txt
-
-def wrap_lines(draw, text, font, max_width, max_lines=2, line_spacing=10):
-    if not text:
-        return [], 0
-    words = text.strip().split()
-    lines, cur = [], ""
-    for w in words:
-        trial = (cur + " " + w).strip()
-        if draw.textlength(trial, font=font) <= max_width:
-            cur = trial
-        else:
-            if cur: lines.append(cur)
-            cur = w
-        if len(lines) == max_lines:
-            break
-    if len(lines) < max_lines and cur:
-        lines.append(cur)
-    leftover = len(words) > sum(len(l.split()) for l in lines)
-    if leftover and lines:
-        last = lines[-1]
-        while draw.textlength(last + "…", font=font) > max_width and len(last) > 1:
-            last = last[:-1]
-        lines[-1] = last + "…"
-    h = 0
-    for i, ln in enumerate(lines):
-        _, _, _, bh = draw.textbbox((0,0), ln, font=font)
-        h += bh
-        if i < len(lines)-1:
-            h += line_spacing
-    return lines, h
-
-def _first_clause(text: str) -> str:
-    if not text:
-        return ""
-    s = re.sub(r"\s+", " ", text).strip()
-    for sep in [". ", "…", "!", "¡", "?", "¿", ";", ":"]:
-        if sep in s:
-            s = s.split(sep)[0]
-            break
-    return s
-
-def _truncate_ellipsis(text: str, max_chars: int) -> str:
-    if len(text) <= max_chars:
-        return text
-    t = text[:max_chars-1].rstrip()
-    sp = t.rfind(" ")
-    if sp > max_chars * 0.6:
-        t = t[:sp]
-    return t + "…"
-
-def _normalize_text(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip())
-
-def _sentences(s: str):
-    return [seg.strip() for seg in re.split(r"(?<=[\.\!\?…])\s+", s) if seg.strip()]
-
-def _trim_to_words(text: str, max_words: int) -> str:
-    words = text.split()
-    if len(words) <= max_words:
-        return text
-    t = " ".join(words[:max_words])
-    return t.rstrip(",;:") + "…"
-
-
-# ------------------ OVERLAY ------------------
-def make_overlay(title, fecha, hook=None):
-    title_f, small_f = load_fonts()
-    ov = Image.new("RGBA", (W, H), (0,0,0,0))
-    d = ImageDraw.Draw(ov)
-
-    # Dibuja los fondos semi-transparentes
-    d.rectangle([0, 0, W, TOP_MARGIN], fill=(0,0,0,220))
-    d.rectangle([0, H-BOTTOM_MARGIN, W, H], fill=(0,0,0,220))
-
-    # Función para dibujar texto con contorno
-    def draw_outlined_text(pos, text, font, fill_color, outline_color=(0, 0, 0, 255), outline_width=2):
-        x, y = pos
-        # Dibuja el contorno
-        for dx, dy in [(-outline_width, 0), (outline_width, 0), (0, -outline_width), (0, outline_width)]:
-            d.text((x + dx, y + dy), text, font=font, fill=outline_color)
-        # Dibuja el texto principal
-        d.text(pos, text, font=font, fill=fill_color)
-
-    # Texto del hook
-    hook_lines, hook_h = wrap_lines(d, hook or "", small_f, int(W*0.94))
-    y_hook = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN*0.5) - hook_h//2
-    for ln in hook_lines:
-        lw = d.textlength(ln, font=small_f)
-        draw_outlined_text(((W-lw)//2, y_hook), ln, small_f, (255,255,255,255))
-        _, _, _, bh = d.textbbox((0,0), ln, font=small_f)
-        y_hook += bh + LINE_SPACING
-
-    # Título
-    t_lines, t_h = wrap_lines(d, title or "", title_f, int(W*0.94))
-    y_title_center = int(TOP_MARGIN * TITLE_POS)
-    y = y_title_center - t_h//2
-    for ln in t_lines:
-        lw = d.textlength(ln, font=title_f)
-        draw_outlined_text(((W-lw)//2, y), ln, title_f, (255,255,0,255))
-        _, _, _, bh = d.textbbox((0,0), ln, font=title_f)
-        y += bh + LINE_SPACING
-
-    # Fecha
-    f_txt = f"Estreno en España: {fecha}" if fecha else ""
-    f_txt = wrap_fit(d, f_txt, small_f, int(W*0.94))
-    fw = d.textlength(f_txt, font=small_f)
-    y_date = H - BOTTOM_MARGIN + int(BOTTOM_MARGIN*0.85) - small_f.size//2
-    draw_outlined_text(((W-fw)//2, y_date), f_txt, small_f, (255,255,0,255)) # Cambio aquí
-
-    return ov
-
-
-# ------------------ CLIPS y AUDIO ------------------
-def clip_from_img(path: Path, dur: float) -> ImageClip:
-    return ImageClip(str(path)).set_duration(dur).resize((W,H))
-
-def pick_music():
-    if not MUSIC_DIR.exists(): return None
-    files = sorted(MUSIC_DIR.glob("*.mp3"))
-    return random.choice(files) if files else None
-
-def _clean_for_tts(text: str) -> str:
-    if not text: return ""
-    text = re.sub(r"http[s]?://\S+", "", text)
-    text = re.sub(r"\s+", " ", text).replace("—","-").replace("–","-")
-    text = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ,\.\-\!\?\:\;\'\"]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()[:900]
-
-def _retime_wav_ffmpeg(in_wav: Path, out_wav: Path, atempo: float = 0.92) -> bool:
-    try:
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-               "-i", str(in_wav), "-filter:a", f"atempo={atempo}", str(out_wav)]
-        res = subprocess.run(cmd, check=True, capture_output=True)
-        return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 0
-    except Exception as e:
-        logging.error(f"Error en _retime_wav_ffmpeg: {e}")
-        return False
-
-def _concat_wav_ffmpeg(inputs: list[Path], out_wav: Path) -> bool:
-    if not inputs: return False
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
-    for s in inputs: cmd += ["-i", str(s)]
-    n = len(inputs)
-    filt = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[outa]"
-    cmd += ["-filter_complex", filt, "-map", "[outa]", str(out_wav)]
-    res = subprocess.run(cmd, check=True, capture_output=True)
-    return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 0
-
-def _synthesize_tts_coqui(text: str, out_wav: Path) -> Path | None:
-    try:
-        from TTS.api import TTS
-    except ImportError:
-        logging.error("Coqui TTS no está instalado. No se generará audio de voz.")
-        return None
-    try:
-        cleaned_text = _clean_for_tts(text)
-        if not cleaned_text:
+def extract_frame_from_path(path: Path, tmpdir: Path) -> str | None:
+    """Extrae un frame representativo de un video o devuelve la ruta de una imagen."""
+    if path.suffix.lower() in ['.jpg', '.jpeg', '.png']:
+        return str(path)
+    else:
+        try:
+            clip = VideoFileClip(str(path))
+            frame = clip.get_frame(0)
+            img = Image.fromarray(frame)
+            tmp_path = os.path.join(tmpdir, f"frame_from_{path.name}.jpg")  # Usar tmpdir
+            img.save(tmp_path)
+            clip.close()
+            return tmp_path
+        except Exception as e:
+            logging.error(f"Error al extraer frame de {path}: {e}")
             return None
-        tts = TTS(model_name="tts_models/es/css10/vits", progress_bar=False, gpu=False)
-        tts.tts_to_file(text=cleaned_text, file_path=str(out_wav), language="es")
-        if out_wav.exists() and out_wav.stat().st_size > 0:
-            return out_wav
-    except Exception as e:
-        logging.error(f"Error en la síntesis de voz con VITS: {e}")
-    return None
 
-
-def _synthesize_xtts_with_pauses(text: str, out_wav: Path) -> Path | None:
+def is_similar_image(img1_path: Path, img2_path: Path, threshold: int) -> tuple[bool, int]:
+    """Compara dos imágenes usando imagehash y devuelve si son similares y la distancia."""
     try:
-        from TTS.api import TTS
-    except ImportError:
-        logging.error("Coqui TTS no está instalado. No se generará audio de voz.")
+        hash1 = imagehash.average_hash(Image.open(img1_path))
+        hash2 = imagehash.average_hash(Image.open(img2_path))
+        distance = hash1 - hash2
+        logging.debug(f"Distancia Hamming entre {img1_path.name} y {img2_path.name}: {distance}")
+        return distance <= threshold, distance
+    except Exception as e:
+        logging.error(f"Error al comparar {img1_path} y {img2_path}: {e}")
+        return False, 0
+
+def clip_from_img(path: Path, dur: float) -> ImageClip:
+    """Crea un clip de video a partir de una imagen con duración dada."""
+    try:
+        img_clip = ImageClip(str(path)).set_duration(dur)
+        # Letterboxing para preservar proporción
+        img_w, img_h = img_clip.size
+        target_ratio = W / H
+        current_ratio = img_w / img_h
+        if current_ratio > target_ratio:  # Imagen más ancha, añadir barras arriba/abajo
+            new_h = int(img_w / target_ratio)
+            y_offset = (new_h - img_h) // 2
+            img_clip = img_clip.margin(top=y_offset, bottom=y_offset, color=(0, 0, 0))
+        else:  # Imagen más alta, añadir barras a los lados
+            new_w = int(img_h * target_ratio)
+            x_offset = (new_w - img_w) // 2
+            img_clip = img_clip.margin(left=x_offset, right=x_offset, color=(0, 0, 0))
+        return img_clip.resize((W, H))
+    except Exception as e:
+        logging.error(f"Error al cargar imagen {path}: {e}")
         return None
 
-    cleaned_text = _clean_for_tts(text)
-    if not cleaned_text:
-        return None
+def filter_similar_images(image_paths: list[Path], poster_path: Path | None = None, threshold: int = HASH_SIMILARITY_THRESHOLD, tmpdir: Path = None) -> list[Path]:
+    """Filtra imágenes o clips similares basándose en imagehash, comparando todos con todos y con el póster."""
+    if not image_paths:
+        return []
     
-    sents = _sentences(cleaned_text) or [cleaned_text]
+    unique_images = []
+    filtered_count = 0
+    for i, path1 in enumerate(image_paths):
+        is_similar = False
+        for j, path2 in enumerate(image_paths):
+            if i != j:  # Evitar comparar una imagen consigo misma
+                # Extraer un frame representativo del clip si es video
+                img1_path = Path(extract_frame_from_path(path1, tmpdir)) if extract_frame_from_path(path1, tmpdir) else None
+                img2_path = Path(extract_frame_from_path(path2, tmpdir)) if extract_frame_from_path(path2, tmpdir) else None
+                if img1_path and img2_path and img1_path.exists() and img2_path.exists():
+                    is_sim, distance = is_similar_image(img1_path, img2_path, threshold)
+                    if is_sim:
+                        is_similar = True
+                        filtered_count += 1
+                        logging.info(f"Clip/Imagen {Path(path1).name} descartado por similitud con {Path(path2).name} (distancia Hamming: {distance})")
+                        break
+        # Comparar con el póster si existe y es un archivo
+        if poster_path and not is_similar and poster_path.is_file():
+            img1_path = Path(extract_frame_from_path(path1, tmpdir)) if extract_frame_from_path(path1, tmpdir) else None
+            if img1_path and img1_path.exists() and poster_path.exists():
+                try:
+                    is_sim, distance = is_similar_image(img1_path, poster_path, threshold)
+                    if is_sim:
+                        is_similar = True
+                        filtered_count += 1
+                        logging.info(f"Clip/Imagen {Path(path1).name} descartado por similitud con el póster {Path(poster_path).name} (distancia Hamming: {distance})")
+                except PermissionError as e:
+                    logging.warning(f"Permiso denegado al comparar {img1_path} y {poster_path}: {e}")
+        if not is_similar:
+            unique_images.append(path1)
     
-    try:
-        tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=False, gpu=False)
-        
-        tmp_parts = []
-        for i, s in enumerate(sents, 1):
-            part_path = STATE / f"_xtts_part_{i}.wav"
-            tts.tts_to_file(text=s, file_path=str(part_path), language="es", speaker="Alma María")
-            if not part_path.exists(): raise FileNotFoundError
-            tmp_parts.append(part_path)
-        
-        silence_path = STATE / "_xtts_silence.wav"
-        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.35", "-q:a", "9", str(silence_path)], check=True, capture_output=True)
-        
-        seq = []
-        for i, p in enumerate(tmp_parts):
-            seq.append(p)
-            if i < len(tmp_parts) - 1:
-                seq.append(silence_path)
-        
-        if _concat_wav_ffmpeg(seq, out_wav):
-            for p in set(tmp_parts + [silence_path]):
-                p.unlink()
-            return out_wav
-        
-    except Exception as e:
-        logging.error(f"Error en la síntesis XTTS: {e}")
-    
-    return None
+    logging.info(f"Backdrops seleccionados: {len(unique_images[:max(4, MAX_BACKDROPS)])}")
+    if not unique_images and poster_path and poster_path.is_file() and poster_path.exists():
+        logging.warning("No hay backdrops válidos; usando póster como fallback.")
+        return [poster_path]
+    return unique_images[:max(4, MAX_BACKDROPS)]  # Asegura al menos 4 si hay suficientes
 
-def _mix_audio_with_voice(video_clip, voice_audio_path: Path, music_path: Path | None,
-                          music_vol: float = 0.15, fade_in: float = 0.6, fade_out: float = 0.8):
-    dur_v = video_clip.duration
-    tracks = []
-    if voice_audio_path and voice_audio_path.exists():
-        voice = AudioFileClip(str(voice_audio_path))
-        tracks.append(voice)
-
-    if music_path and music_path.exists():
-        m = AudioFileClip(str(music_path))
-        if m.duration < dur_v:
-            m = afx.audio_loop(m, duration=dur_v)
-        else:
-            m = m.subclip(0, dur_v)
-        m = m.audio_fadein(fade_in).audio_fadeout(fade_out).volumex(music_vol)
-        tracks.append(m)
-
-    if tracks:
-        final_audio = CompositeAudioClip(tracks).subclip(0, dur_v)
-        return video_clip.set_audio(final_audio)
-    return video_clip
-
-# --- MAIN ---
 def main():
-    SEL_FILE = STATE / "next_release.json"
-    MANIFEST = STATE / "assets_manifest.json"
-    if not SEL_FILE.exists() or not MANIFEST.exists():
-        raise SystemExit("Falta next_release.json o assets_manifest.json.")
+    if not SEL_FILE.exists():
+        logging.warning("next_release.json no encontrado. Usando valores predeterminados para prueba.")
+        sel = {"tmdb_id": "936108", "titulo": "Pitufos", "fecha_estreno": "1984-09-12"}
+    else:
+        sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
 
-    sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
-    man = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    video_clips = []
+    backdrops = []  # Inicializar backdrops
+    if not MANIFEST.exists():
+        logging.warning("assets_manifest.json no encontrado. Usando clips preexistentes en assets/video_clips.")
+        clips_dir = ROOT / "assets" / "video_clips"
+        video_clips = [clips_dir / p for p in os.listdir(clips_dir) if p.endswith((".mp4", ".avi"))]
+    else:
+        man = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        video_clips = [ROOT / p for p in man.get("video_clips", []) if (ROOT / p).exists()]
+        backdrops = [ROOT / b for b in man.get("backdrops", []) if (ROOT / b).exists()]
 
     tmdb_id = sel.get("tmdb_id", "unknown")
     title = sel.get("titulo") or sel.get("title") or ""
     fecha = sel.get("fecha_estreno") or ""
     slug = slugify(title)
 
-    # Paso 1: Generar narración y hook
-    logging.info("Generando sinopsis y hook con IA...")
-    narracion_generada = _generate_narracion_with_ai(sel)
-    sel["sinopsis_generada"] = narracion_generada # Guardamos para el hook
-    hook = _generate_hook_with_ai(sel)
-    
-    narracion = _trim_to_words(narracion_generada, max_words=80) if narracion_generada else None
+    # Crear directorio temporal
+    temp_root = ROOT / "temp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    tmpdir = temp_root / f"tmp_{tmdb_id}"
+    tmpdir.mkdir(parents=True, exist_ok=True)
 
-    
-    if not narracion:
-        logging.warning("No se pudo generar una narración de IA. Usando un gancho genérico.")
-        hook = f"«{title}»\n¡No te la puedes perder!"
+    # Generar narración y audio en el directorio temporal
+    narracion, voice_path = generate_narration(sel, tmdb_id, slug, tmpdir=tmpdir)
 
-    logging.info(f"Hook generado: {hook}")
-    logging.info(f"Narración generada: {narracion[:100]}...") if narracion else logging.info("No se generó narración.")
+    # Cargar assets
+    if MANIFEST.exists():
+        poster_path = ROOT / man.get("poster_path", "")
+        if not poster_path.exists():
+            logging.warning(f"Ruta del manifiesto inválida: {poster_path}, buscando en assets/posters")
+            poster_path = ROOT / "assets" / "posters" / f"{tmdb_id}_poster.jpg"
+    else:
+        poster_path = ROOT / "assets" / "posters" / f"{tmdb_id}_poster.jpg"  # Buscar por tmdb_id
+        if not poster_path.exists():
+            logging.warning(f"Póster no encontrado en {poster_path}, buscando fallback en assets/posters")
+            for file in os.listdir(ROOT / "assets" / "posters"):
+                if file.startswith(f"{tmdb_id}") and file.endswith((".jpg", ".jpeg", ".png")):
+                    poster_path = ROOT / "assets" / "posters" / file
+                    logging.info(f"Póster encontrado como fallback: {poster_path}")
+                    break
+            if not poster_path.exists():
+                logging.error(f"Ningún póster encontrado para tmdb_id {tmdb_id} en assets/posters")
+                poster_path = None
+    video_clips = video_clips if video_clips else [ROOT / p for p in os.listdir(ROOT / "assets" / "video_clips") if p.endswith((".mp4", ".avi"))]
+    backdrops = backdrops if backdrops else []
 
-    # Paso 2: Generar audio de voz si es posible
-    voice_path = None
-    if narracion:
-        voice_path = STATE / f"{tmdb_id}_{slug}_narracion.wav"
-        if not voice_path.exists():
-            voice_path = _synthesize_xtts_with_pauses(narracion, voice_path) or _synthesize_tts_coqui(narracion, voice_path)
-        
-        if voice_path:
-            logging.info(f"Audio de voz generado con duración de {AudioFileClip(str(voice_path)).duration:.2f} segundos.")
-        else:
-            logging.warning("No se pudo generar el audio de voz. El vídeo no tendrá narración.")
-
-    # Paso 3: Generar el overlay (título, gancho, etc.)
-    ov_path = STATE / f"overlay_static_{tmdb_id}.png"
-    make_overlay(title, fecha, hook).save(ov_path, "PNG")
-
-    # Paso 4: Preparar clips de vídeo
-    poster = man.get("poster_vertical") or man.get("poster")
-    backdrops = man.get("backdrops_vertical") or man.get("backdrops") or []
-    
-    # Asegura que haya backdrops si solo hay póster
-    if poster and not backdrops:
-        backdrops = [poster]*min(5, MAX_BACKDROPS)
-    
-    bd_paths = [ROOT / b for b in backdrops if (ROOT / b).exists()]
+    # Combinar clips y backdrops, priorizando clips de video
+    bd_paths = video_clips + backdrops if video_clips else backdrops
     if not bd_paths:
-        logging.warning("No hay backdrops válidos. Usando póster como fallback.")
-        bd_paths = [ROOT / poster] if poster and (ROOT / poster).exists() else []
+        logging.warning("No se encontraron backdrops ni clips de video. Usando póster como fallback.")
+        bd_paths = [poster_path] if poster_path.exists() else []
 
-    intro = clip_from_img(ROOT / poster, INTRO_DUR) if poster and (ROOT / poster).exists() else None
-    
-    # Paso 5: Calcular la duración del vídeo y generar clips
-    audio_dur = AudioFileClip(str(voice_path)).duration if voice_path else 0
-    video_dur = audio_dur + (INTRO_DUR if intro else 0)
-    video_dur = min(video_dur, TARGET_SECONDS)
-    
-    n_bd = len(bd_paths)
-    per_bd = (video_dur - (INTRO_DUR if intro else 0)) / max(1, n_bd)
-    clips = [clip_from_img(p, per_bd) for p in bd_paths]
-    if intro: clips.insert(0, intro)
-    
-    final_clip = concatenate_videoclips(clips, method="compose")
+    # Filtrar imágenes o clips similares
+    bd_paths = filter_similar_images(bd_paths, poster_path, HASH_SIMILARITY_THRESHOLD, tmpdir)
 
-    # Paso 6: Mezclar el audio y exportar
-    music_file = pick_music()
-    final_clip = _mix_audio_with_voice(final_clip, voice_path, music_file, music_vol=MUSIC_VOL,
-                                     fade_in=FADE_IN, fade_out=FADE_OUT)
+    # Crear clips de video o imágenes
+    clips = []
+    for path in bd_paths:
+        if path.suffix.lower() in ['.jpg', '.jpeg', '.png']:
+            img_clip = clip_from_img(path, CLIP_DURATION)
+            if img_clip:
+                clips.append(img_clip)
+        else:
+            try:
+                video_clip = VideoFileClip(str(path)).set_duration(CLIP_DURATION)
+                clips.append(video_clip)
+            except Exception as e:
+                logging.error(f"Error al cargar clip de video {path}: {e}")
+            else:
+                video_clip.close()  # Cerrar explícitamente el VideoFileClip
+
+    # Crear intro con la imagen sin recortar, mantener tamaño original
+    if poster_path and poster_path.is_file():
+        logging.debug(f"Póster válido encontrado: {poster_path}")
+        img = Image.open(poster_path).convert("RGB")
+        w, h = img.size
+        intro_clip = ImageClip(str(poster_path)).set_duration(INTRO_DURATION)
+        if intro_clip:
+            logging.debug(f"Intro_clip creado con tamaño original {w}x{h} y duración: {INTRO_DURATION} segundos")
+            clips.insert(0, intro_clip)
+        else:
+            logging.error(f"Fallo al crear intro_clip desde {poster_path}")
+    else:
+        logging.error(f"Póster no válido o no encontrado: {poster_path}, usando clip vacío 1080x1920")
+        intro_clip = ImageClip(np.zeros((1920, 1080, 3), dtype=np.uint8), duration=INTRO_DURATION)
+        clips.insert(0, intro_clip)
+
+    # Eliminar overlay (sin letras)
+    final_clips = clips  # Usar clips directamente sin overlay
+
+    # Concatenar todos los clips
+    final_clip = concatenate_videoclips(final_clips, method="compose")
+
+    # Ajustar tamaño para agrandar clips a 1080x1920
+    def resize_to_9_16(clip):
+        logging.debug(f"Redimensionando clip: tamaño original {clip.w}x{clip.h}, ratio {clip.w / clip.h}")
+        target_ratio = 9 / 16
+        current_ratio = clip.w / clip.h
+        
+        # Escalar al 90% del alto (dejando margen superior)
+        target_height = 1728  # 90% de 1920
+        if current_ratio > target_ratio:  # Imagen más ancha
+            scale = target_height / clip.h
+            new_w = int(clip.w * scale)
+            clip = clip.resize((new_w, target_height))
+            # Añadir barras negras a los lados si no llega a 1080
+            if new_w < 1080:
+                x_offset = (1080 - new_w) // 2
+                clip = clip.margin(left=x_offset, right=x_offset, color=(0, 0, 0))
+        else:  # Imagen más alta o cuadrada
+            scale = target_height / clip.h
+            new_w = int(clip.w * scale)
+            clip = clip.resize((new_w, target_height))
+            # Añadir barras negras a los lados si no llega a 1080
+            if new_w < 1080:
+                x_offset = (1080 - new_w) // 2
+                clip = clip.margin(left=x_offset, right=x_offset, color=(0, 0, 0))
+        
+        # Añadir margen superior fijo y completar con barras negras abajo
+        y_margin = (1920 - target_height) // 2  # Centrar verticalmente
+        clip = clip.margin(top=y_margin, bottom=y_margin, color=(0, 0, 0))
+        
+        final_size = clip.size
+        logging.debug(f"Tamaño final después de ajustar a 1080x1920 con margen: {final_size[0]}x{final_size[1]}")
+        return clip.resize((1080, 1920))  # Forzar tamaño final exacto
+
+    final_clip = resize_to_9_16(final_clip)
+
+    # Añadir narración como audio
+    if voice_path and os.path.exists(voice_path):
+        try:
+            audio_clip = AudioFileClip(str(voice_path))  # Convertir a str
+            if audio_clip.duration >= final_clip.duration:
+                audio_clip = audio_clip.subclip(0, final_clip.duration)
+            else:
+                audio_clip = concatenate_audioclips([audio_clip] * (int(final_clip.duration / audio_clip.duration) + 1)).subclip(0, final_clip.duration)
+            final_clip = final_clip.set_audio(audio_clip)
+        except Exception as e:
+            logging.error(f"Error al cargar audio desde {voice_path}: {e}")
 
     out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
     final_clip.write_videofile(str(out_file), fps=30, codec="libx264", audio_codec="aac")
     logging.info(f"🎬 Short generado en: {out_file}")
-    return str(out_file)
+    # cleanup_temp_files(tmpdir)  # Comentar limpieza temporal
+    return str(out_file)  # Devolver la ruta del video
 
-if __name__ == "__main__":
-    main()
+def cleanup_temp_files(tmpdir):
+    """Limpia archivos temporales específicos del directorio temporal."""
+    time.sleep(2)  # Retraso para liberar bloqueos
+    for file in os.listdir(tmpdir):
+        file_path = os.path.join(tmpdir, file)
+        if os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+                logging.debug(f"Archivo temporal {file} eliminado de {tmpdir}.")
+            except PermissionError as e:
+                logging.warning(f"No se pudo eliminar {file} por bloqueo en {tmpdir}: {e}")
+    logging.info(f"Archivos temporales en {tmpdir} eliminados (o intentados).")
