@@ -1,99 +1,118 @@
+# YouTube Shorts Generator Project
 
+Welcome to the **YouTube Shorts Generator Project**! This repository showcases an exciting learning journey into video automation, where I’ve built a Python-based tool to create and manage YouTube Shorts from movie data. This project is a personal exploration of programming, API integration, and multimedia processing—perfect for anyone looking to dive into creative coding. Best of all, it’s not intended for monetization; it’s purely for educational purposes and sharing knowledge with the community! Current work can be seen in https://www.youtube.com/@EstrenoscineEspa%C3%B1a-r5j
 
-# AI\_youtube\_shorts
+## Project Overview
 
-**`AI_youtube_shorts`** es una herramienta automatizada que genera y publica **YouTube Shorts** sobre los próximos estrenos de cine. El proyecto combina la extracción de datos de la API de TMDb, la síntesis de voz, la edición de video con `MoviePy` y la publicación a través de la API de YouTube.
+This project automates the creation of YouTube Shorts by fetching movie data, generating narrated videos, and preparing them for upload (though uploads are limited by YouTube’s API quotas). It leverages APIs (like TMDb), machine learning (Ollama for narration), and video editing libraries (MoviePy) to produce polished 1080x1920 videos with dynamic overlays. Whether you're a beginner or an advanced coder, this repo offers a treasure trove of techniques to explore and learn from.
 
-El objetivo es crear videos de forma autónoma con información clave, imágenes y una narración generada por inteligencia artificial.
+- **Goal**: A hands-on learning experience in Python, API usage, and video processing.
+- **Non-Commercial**: This is not for profit—just a passion project to grow my skills and inspire others.
+- **GitHub Appeal**: A beautifully organized repo with clear documentation, ready to impress your peers or future employers!
 
-## Características
+## How It Works
 
-  * **Extracción de datos:** Se conecta a la API de TMDb para descubrir los próximos estrenos de cine en España, obteniendo metadatos como sinopsis, géneros, reparto, valoraciones y tráileres.
-  * **Generación de `hook` y narración:** Crea una breve introducción (`hook`) y una narración concisa para el video, seleccionando partes de la sinopsis o generando un texto descriptivo basado en los géneros de la película.
-  * **Síntesis de voz (TTS):** Utiliza la biblioteca [Coqui TTS](https://github.com/coqui-ai/tts) para convertir la narración en audio, con soporte para pausas naturales entre frases.
-  * **Procesamiento de imágenes:** Descarga pósteres y fondos de pantalla (`backdrops`) de TMDb y los adapta al formato vertical (9:16) de los YouTube Shorts, añadiendo bandas negras en la parte superior e inferior para el texto.
-  * **Edición de video:** Compila un video combinando las imágenes procesadas con el audio de la narración y una música de fondo.
-  * **Generación de metadatos de YouTube:** Crea automáticamente un título, una descripción y etiquetas (`tags`) optimizadas para YouTube, incluyendo información relevante como el reparto y los géneros.
-  * **Subida a YouTube:** Automatiza el proceso de autenticación y subida del video final a tu canal de YouTube.
+The project follows a structured pipeline with multiple scripts, each handling a specific task. Below is the order of execution and the purpose of each script:
 
-## Estructura del Proyecto
+### Script Execution Order
+1. **select_next_release.py**
+   - **Function**: Selects the next movie to process from a list of upcoming releases fetched from TMDb.
+   - **Details**: Analyzes candidates based on title availability and backdrop count, saving the selection to `next_release.json`.
 
-Los scripts principales se encuentran en la carpeta `scripts/`.
+2. **download_assets.py**
+   - **Function**: Downloads movie posters and backdrops from TMDb, converting them to vertical (9:16) formats.
+   - **Details**: Saves assets in the `assets` directory and updates `assets_manifest.json` with file paths.
 
-  * `pipeline.py`: Ejecuta la secuencia principal del proyecto: seleccionar el siguiente estreno, descargar los recursos y generar los metadatos de YouTube.
-  * `select_next_release.py`: Elige el próximo estreno a procesar en función de su "hype" (popularidad, votos, etc.).
-  * `download_assets.py`: Descarga y procesa los pósteres y `backdrops` de la película seleccionada.
-  * `build_youtube_metadata.py`: Crea el archivo `JSON` con el título, descripción y etiquetas que se usarán en YouTube.
-  * `build_short.py`: El script más complejo. Se encarga de la generación de la narración, la síntesis de voz, la edición de imágenes, la mezcla de audio y la creación del video final (`.mp4`).
-  * `upload_youtube.py`: Gestiona la autenticación con la API de YouTube y sube el video generado.
+3. **build_youtube_metadata.py**
+   - **Function**: Generates metadata (title, description, tags) for the YouTube video based on movie data.
+   - **Details**: Uses AI (Ollama) for translation if needed and saves to `youtube_metadata.json`.
 
-## Requisitos
+4. **ai_narration.py**
+   - **Function**: Generates a narrated synopsis using AI and synthesizes audio with Coqui TTS.
+   - **Details**: Produces a WAV file for the video’s audio track, leveraging machine learning models.
 
-El proyecto requiere Python 3.8 o superior. Todas las dependencias necesarias están listadas en el archivo `requirements.txt`.
+5. **overlay.py**
+   - **Function**: Creates an overlay image with the movie title and release date on black bands.
+   - **Details**: Generates a 1080x1920 PNG with semi-transparent bands, saved as `overlay_test_<tmdb_id>.png`.
 
-```txt
-# Contenido de tu requirements.txt
-# --- Core video ---
-moviepy==1.0.3
-imageio==2.35.1
-imageio-ffmpeg==0.4.9
-Pillow==10.4.0
+6. **build_short.py**
+   - **Function**: Assembles the final video by combining the poster, backdrops, narration audio, and overlay.
+   - **Details**: Outputs a 1080x1920 MP4 file in `output/shorts`, with a 4-second intro without bands.
 
+7. **upload_youtube.py**
+   - **Function**: Uploads the generated video to YouTube (optional, quota-dependent).
+   - **Details**: Requires `client_secret.json` for authentication; currently commented out in `publish.py` due to daily limits.
 
-# --- YouTube API ---
-google-api-python-client==2.149.0
-google-auth==2.35.0
-google-auth-oauthlib==1.2.1
-google-auth-httplib2==0.2.0
+8. **publish.py**
+   - **Function**: Orchestrates the entire pipeline, executing the above scripts in order.
+   - **Details**: Serves as the main entry point; upload functionality is disabled until YouTube quota resets.
 
+### Workflow Diagram
+```
+[select_next_release] --> [download_assets] --> [build_youtube_metadata] --> [ai_narration] --> [overlay] --> [build_short] --> [upload_youtube]
+         ↑                                                                      ↓
+         └-------------------[publish.py]--------------------------------------┘
 ```
 
-## Instalación
+## Project Structure
+- **`scripts/`**: Contains all Python scripts.
+  - `publish.py`: Main script to run the pipeline.
+  - `select_next_release.py`: Movie selection logic.
+  - `download_assets.py`: Asset downloader.
+  - `build_youtube_metadata.py`: Metadata generator.
+  - `ai_narration.py`: AI narration and audio synthesis.
+  - `overlay.py`: Overlay image creator.
+  - `build_short.py`: Video assembler.
+  - `upload_youtube.py`: YouTube uploader.
+- **`assets/`**: Stores downloaded posters and backdrops.
+- **`output/`**: Contains generated files (JSON, MP4, PNG).
+- **`config/`**: Holds `client_secret.json` for YouTube API (optional).
 
-1.  **Clona el repositorio:**
+## Setup Instructions
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/JavierRubio4U/youtube_shorts.git
+   cd youtube-shorts-generator
+   ```
 
-    ```bash
-    git clone https://github.com/JavierRubio4U/AI_youtube_shorts.git
-    ```
+2. **Install Dependencies**:
+   - Create a virtual environment:
+     ```bash
+     python -m venv shorts311
+     shorts311\Scripts\activate
+     ```
+   - Install required packages:
+     ```bash
+     pip install moviepy Pillow numpy ollama langdetect TTS requests google-auth-oauthlib google-auth-httplib2 google-api-python-client
+     ```
+   - Ensure FFmpeg is installed (e.g., via `choco install ffmpeg` on Windows with Chocolatey).
 
-2.  **Navega al directorio del proyecto:**
+3. **Configure YouTube API** (Optional):
+   - Create a project in [Google Cloud Console](https://console.cloud.google.com/).
+   - Enable the YouTube Data API.
+   - Generate OAuth 2.0 credentials and save `client_secret.json` in the `config` folder.
+   - Note: Upload is disabled due to daily limits; enable it in `publish.py` when ready.
 
-    ```bash
-    cd AI_youtube_shorts
-    ```
+4. **Run the Project**:
+   ```bash
+   python scripts/publish.py
+   ```
 
-3.  **Instala las dependencias de Python:**
+## Learning Outcomes
+This project is a goldmine for learning:
+- **API Integration**: Fetching data from TMDb.
+- **Machine Learning**: Using Ollama for text generation.
+- **Video Processing**: Editing with MoviePy and Pillow.
+- **Automation**: Building a full pipeline from data to video.
+- **GitHub Presence**: A clean, documented repo to showcase your skills!
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+## Non-Commercial Disclaimer
+This project is for educational purposes only and not intended for monetization. It’s a personal experiment to explore coding and multimedia, shared openly to inspire and educate. Feel free to fork, learn, and contribute!
 
-4.  **Configura las APIs:**
+## Future Improvements
+- Add subtitles or transitions.
+- Optimize audio synthesis speed.
+- Enhance overlay customization (colors, fonts).
 
-      * **TMDb:** Crea una cuenta en [The Movie Database (TMDb)](https://www.themoviedb.org/) y obtén tu clave de API. Guárdala en un archivo llamado `tmdb_api_key.txt` dentro de la carpeta `config/`.
-      * **YouTube:** Sigue los pasos para obtener las credenciales de la [API de YouTube Data](https://developers.google.com/youtube/v3/guides/auth/installed-apps). El archivo `client_secret.json` debe guardarse en la carpeta `config/`.
+---
 
-## Uso
-
-El `pipeline` principal se ejecuta a través del script `publish.py`. Este script automatiza todo el proceso, desde la selección del próximo estreno hasta la publicación en YouTube.
-
-```bash
-python scripts/publish.py
-```
-
-Si solo quieres ejecutar pasos individuales, puedes usar los scripts correspondientes en la carpeta `scripts/`:
-
-  * `python scripts/select_next_release.py`: Selecciona una película y la guarda para su uso posterior.
-  * `python scripts/pipeline.py`: Ejecuta los pasos de selección, descarga de assets y generación de metadatos.
-  * `python scripts/build_short.py`: Genera el archivo de video (`.mp4`) con el `short`.
-  * `python scripts/upload_youtube.py`: Sube el video a tu canal de YouTube.
-
-## Notas Importantes
-
-  * La calidad de la síntesis de voz y el resultado final del video dependen de las librerías instaladas y la configuración del sistema.
-  * La subida a YouTube requiere una autenticación inicial, que se gestiona de forma automática la primera vez que se ejecuta el script.
-  * El proyecto está configurado para un **uso personal** y requiere de la configuración manual de las credenciales de API.
-
-## Contribuciones
-
-Las contribuciones, sugerencias y reportes de errores son bienvenidos. Siéntete libre de abrir una `issue` o enviar un `pull request` en el repositorio.
