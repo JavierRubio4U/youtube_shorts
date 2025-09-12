@@ -61,8 +61,8 @@ def main():
     print("▶ Paso 4: generar video short (MP4)…")
     try:
         mp4_path = build_short.main()
-    except SystemExit as e:
-        logging.error(f"Error al generar el video: {e}")
+    except Exception as e:  # Cambia SystemExit a Exception para capturar todo
+        logging.error(f"Error al generar el video: {e}", exc_info=True)
         mp4_path = None
 
     if mp4_path and os.path.exists(mp4_path):

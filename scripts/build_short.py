@@ -7,14 +7,14 @@ import random  # Para música aleatoria
 from pathlib import Path
 import sys, json, os, logging, re
 from moviepy.editor import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip, concatenate_audioclips
-from moviepy.audio.AudioClip import CompositeAudioClip  # Para mezcla de audio
+from moviepy.audio.AudioClip import CompositeAudioClip, AudioClip  # Para mezcla y silencio
 from moviepy.audio.fx.all import volumex, audio_fadein, audio_fadeout  # Para fades y volumen
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from overlay import make_overlay_image
 from ai_narration import generate_narration
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s')  # Cambia a DEBUG para más detalles
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')  # Cambia a DEBUG si necesitas más detalles
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
@@ -114,7 +114,6 @@ def filter_similar_images(image_paths: list[Path], poster_path: Path | None = No
     logging.info(f"Clips seleccionados: {len(unique_images[:MAX_BACKDROPS])}")
     return unique_images[:MAX_BACKDROPS]
 
-
 def resize_to_9_16(clip):
     logging.debug(f"Redimensionando clip: tamaño original {clip.w}x{clip.h}, ratio {clip.w / clip.h}")
     target_ratio = 9 / 16
@@ -202,12 +201,26 @@ def main():
             clips.insert(0, intro_clip)
         else:
             logging.error(f"Fallo al crear intro_clip desde {poster_path}")
+            intro_clip = None  # Seguirá a fallback
+    else:
+        logging.warning(f"Póster no válido o no encontrado: {poster_path}. Usando fallback.")
+        intro_clip = None
+
+    # Fallback: Usa el primer backdrop/clip si no hay póster
+    if intro_clip is None and bd_paths:
+        first_bd = bd_paths[0]
+        if first_bd.suffix.lower() in ['.jpg', '.jpeg', '.png']:
+            intro_clip = clip_from_img(first_bd, INTRO_DURATION)
+        else:
+            intro_clip = VideoFileClip(str(first_bd)).get_frame(0)  # Extrae primer frame de video
+            intro_clip = ImageClip(intro_clip).set_duration(INTRO_DURATION)
+        if intro_clip:
+            intro_clip = resize_to_9_16(intro_clip)
+            clips.insert(0, intro_clip)
+        else:
+            # Último fallback: negro
             intro_clip = ImageClip(np.zeros((H, W, 3), dtype=np.uint8), duration=INTRO_DURATION)
             clips.insert(0, intro_clip)
-    else:
-        logging.error(f"Póster no válido o no encontrado: {poster_path}")
-        intro_clip = ImageClip(np.zeros((H, W, 3), dtype=np.uint8), duration=INTRO_DURATION)
-        clips.insert(0, intro_clip)
 
     # Concatenar todos los clips
     final_clip = concatenate_videoclips(clips, method="compose")
@@ -220,12 +233,11 @@ def main():
         try:
             audio_clip = AudioFileClip(str(voice_path))
             logging.debug(f"Audio de narración cargado: duración {audio_clip.duration}s")
-            if audio_clip.duration >= final_clip.duration:
+            
+            # Recortar narración si ya es más larga (antes de mezcla)
+            if audio_clip.duration > final_clip.duration:
                 audio_clip = audio_clip.subclip(0, final_clip.duration)
-                logging.debug("Narración recortada al durar más que el video.")
-            else:
-                audio_clip = concatenate_audioclips([audio_clip] * (int(final_clip.duration / audio_clip.duration) + 1)).subclip(0, final_clip.duration)
-                logging.debug(f"Narración extendida y recortada a {final_clip.duration}s")
+                logging.debug(f"Narración recortada a {final_clip.duration}s antes de mezcla.")
             
             # Añadir música de fondo aleatoria
             audio_dir = ROOT / "assets" / "music"
@@ -238,19 +250,25 @@ def main():
                     try:
                         music_clip = AudioFileClip(str(music_path))
                         logging.debug(f"Música cargada: duración original {music_clip.duration}s")
+                        # Ajustar música a duración del video (repetir si corta, subclip si larga)
                         if music_clip.duration < final_clip.duration:
-                            music_clip = concatenate_audioclips([music_clip] * (int(final_clip.duration / music_clip.duration) + 1)).subclip(0, final_clip.duration)
-                            logging.debug(f"Música extendida y recortada a {final_clip.duration}s")
+                            repeats = int(final_clip.duration / music_clip.duration) + 1
+                            music_clip = concatenate_audioclips([music_clip] * repeats).subclip(0, final_clip.duration)
                         else:
                             music_clip = music_clip.subclip(0, final_clip.duration)
-                            logging.debug(f"Música recortada a {final_clip.duration}s")
+                        logging.debug(f"Música ajustada a {final_clip.duration}s")
                         # Fade y volumen bajo
-                        music_clip = music_clip.audio_fadein(1.0).audio_fadeout(1.0).volumex(0.15)  # Bajado a 15% volumen
+                        music_clip = music_clip.audio_fadein(1.0).audio_fadeout(1.0).volumex(0.15)
                         logging.debug("Fades y volumen aplicados a música.")
-                        # Mezclar narración + música
+                        # Mezcla narración + música
                         final_audio = CompositeAudioClip([audio_clip, music_clip])
-                        logging.debug(f"Mezcla de audio completada: narración {audio_clip.duration}s + música {music_clip.duration}s")
-                        final_clip = final_clip.set_audio(final_audio)
+                        logging.debug(f"Mezcla de audio completada: duración {final_audio.duration}s")
+                        
+                        # Recorte final si la mezcla > duración video (bug fix)
+                        if final_audio.duration > final_clip.duration:
+                            final_audio = final_audio.subclip(0, final_clip.duration)
+                            logging.info(f"Audio final recortado a {final_clip.duration}s para fit exacto.")
+                        
                         logging.info(f"Música de fondo aleatoria añadida desde {music_path.name}.")
                     except Exception as e:
                         logging.warning(f"No se pudo añadir música desde {music_path}: {e}")
@@ -258,6 +276,13 @@ def main():
                     logging.info("No se encontraron archivos de música válidos. Solo narración.")
             else:
                 logging.info("Carpeta de music no encontrada o vacía. Solo narración.")
+            
+            # Extender con silencio si < duración video
+            if final_audio.duration < final_clip.duration:
+                silence_duration = final_clip.duration - final_audio.duration
+                silence_clip = AudioClip(lambda t: 0, duration=silence_duration, fps=final_audio.fps)
+                final_audio = concatenate_audioclips([final_audio, silence_clip])
+                logging.debug(f"Audio extendido con silencio a {final_clip.duration}s")
             
             final_clip = final_clip.set_audio(final_audio)
             logging.debug(f"Audio final aplicado al video: duración {final_clip.duration}s")

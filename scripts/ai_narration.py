@@ -39,28 +39,13 @@ def _trim_to_words(text: str, max_words: int) -> str:
     t = " ".join(words[:max_words])
     return t.rstrip(",;:") + "…"
 
-def _narracion_from_synopsis(sinopsis: str, target_words: int = 65) -> str | None:
-    sinopsis = _normalize_text(sinopsis)
-    if not sinopsis:
-        return None
-    sents = _sentences(sinopsis) or [sinopsis]
-    out, count = [], 0
-    for sent in sents:
-        w = len(sent.split())
-        if count + w <= target_words:
-            out.append(sent)
-            count += w
-        else:
-            break
-    body = " ".join(out) if out else sinopsis
-    return _trim_to_words(body, target_words)
-
 # --- Funciones de IA ---
-def _generate_narracion_with_ai(sel: dict, model='mistral') -> str | None:
+def _generate_narration_with_ai(sel: dict, model='mistral') -> str | None:
     """Genera una sinopsis larga y limpia con Ollama."""
     try:
         prompt = f"""
-        Genera una sinopsis detallada y atractiva de 65-70 palabras en español para la película '{sel.get("titulo")}'. 
+        Genera una sinopsis detallada y atractiva de EXACTAMENTE 50-65 palabras en español para la película '{sel.get("titulo")}'. 
+        NO excedas 65 palabras bajo ninguna circunstancia. Cuenta las palabras y ajusta si es necesario.
         IMPORTANTE: El título '{sel.get("titulo")}' es un nombre propio de la franquicia y NO debe traducirse ni cambiarse. 
         La sinopsis debe ser un párrafo cohesivo y no debe listar el título, los géneros, el reparto ni ninguna otra metadata.
         Utiliza la siguiente información para inspirarte:
@@ -69,18 +54,45 @@ def _generate_narracion_with_ai(sel: dict, model='mistral') -> str | None:
         Sinopsis original: {sel.get("sinopsis")}
         Géneros: {', '.join(sel.get("generos"))}
         Palabras clave: {', '.join(sel.get("keywords"))}
+        Reparto top: {', '.join(sel.get("reparto_top"))}
+        Certificación: {sel.get("certificacion_ES")}
         """
         response = ollama.chat(model=model, messages=[
             {'role': 'user', 'content': prompt}
         ])
-        narracion = response['message']['content']
-        # Limpieza adicional para eliminar posibles metadatos
-        narracion = re.sub(r'(Título|Géneros|Reparto|Sinopsis original):.*$', '', narracion, flags=re.MULTILINE).strip()
-        narracion = re.sub(r'[^\w\s\¿\¡\?\!\,\.\-\:\;«»"]', '', narracion)
-        return _normalize_text(narracion)
+        generated = response['message']['content'].strip()
+        # Validación mínima de longitud (log si es corto o largo, pero no recortar)
+        words = len(generated.split())
+        if words < 50:
+            logging.warning(f"Narración generada con solo {words} palabras (mínimo deseado 50).")
+        elif words > 65:
+            logging.warning(f"Narración generada con {words} palabras (máximo deseado 65).")
+        return generated
     except Exception as e:
-        print(f"❌ Error al generar sinopsis con Ollama: {e}")
+        logging.error(f"Error al generar narración con Ollama: {e}")
         return None
+    
+def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir=None) -> tuple[str | None, Path | None]:
+    """Genera la narración con IA y sintetiza el audio."""
+    logging.info("🔎 Generando sinopsis con IA local...")
+    narracion = _generate_narration_with_ai(sel)
+    
+    logging.info(f"Narración generada: {narracion[:100]}...") if narracion else logging.info("No se generó narración.")
+
+    voice_path = None
+    if narracion:
+        narracion = _trim_to_words(narracion, 65)  # Recorta a máximo 65 palabras
+        logging.info(f"Narración recortada a {len(narracion.split())} palabras para ajustar duración.")
+        voice_path = (tmpdir / f"{tmdb_id}_{slug}_narracion.wav") if tmpdir else (STATE / f"{tmdb_id}_{slug}_narracion.wav")
+        if not voice_path.exists():
+            voice_path = _synthesize_xtts_with_pauses(narracion, voice_path, tmpdir) or _synthesize_tts_coqui(narracion, voice_path)
+        
+        if voice_path:
+            logging.info(f"Audio de voz generado con duración de {AudioFileClip(str(voice_path)).duration:.2f} segundos.")
+        else:
+            logging.warning("No se pudo generar el audio de voz. El vídeo no tendrá narración.")
+
+    return narracion, voice_path
 
 # --- Funciones de audio ---
 def _clean_for_tts(text: str) -> str:
@@ -168,32 +180,7 @@ def _synthesize_xtts_with_pauses(text: str, out_wav: Path, tmpdir=None) -> Path 
         logging.error(f"Error en la síntesis XTTS: {e}")
     return None
 
-def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir=None) -> tuple[str | None, Path | None]:
-    """Genera la narración con IA y sintetiza el audio."""
-    logging.info("🔎 Generando sinopsis con IA local...")
-    sinopsis_generada = _generate_narracion_with_ai(sel)
-    
-    if sinopsis_generada:
-        sel["sinopsis_generada"] = sinopsis_generada
-        narracion = _narracion_from_synopsis(sinopsis_generada, target_words=65)
-    else:
-        narracion = None
-
-    logging.info(f"Narración generada: {narracion[:100]}...") if narracion else logging.info("No se generó narración.")
-
-    voice_path = None
-    if narracion:
-        voice_path = (tmpdir / f"{tmdb_id}_{slug}_narracion.wav") if tmpdir else (STATE / f"{tmdb_id}_{slug}_narracion.wav")
-        if not voice_path.exists():
-            voice_path = _synthesize_xtts_with_pauses(narracion, voice_path, tmpdir) or _synthesize_tts_coqui(narracion, voice_path)
-        
-        if voice_path:
-            logging.info(f"Audio de voz generado con duración de {AudioFileClip(str(voice_path)).duration:.2f} segundos.")
-        else:
-            logging.warning("No se pudo generar el audio de voz. El vídeo no tendrá narración.")
-
-    return narracion, voice_path
-
+# (Opcional: si usas main() standalone, lo puedes dejar; si no, elimínalo)
 def main():
     SEL_FILE = STATE / "next_release.json"
     if not SEL_FILE.exists():
@@ -202,7 +189,7 @@ def main():
     sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
     tmdb_id = sel.get("tmdb_id", "unknown")
     title = sel.get("titulo") or sel.get("title") or ""
-    slug = slugify(title)
+    slug = slugify(title)  # Asumiendo que slugify está definido en otro lado
 
     narracion, voice_path = generate_narration(sel, tmdb_id, slug)
     return narracion, voice_path

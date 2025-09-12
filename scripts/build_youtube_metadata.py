@@ -11,6 +11,10 @@ except ImportError:
 
 import ollama
 from langdetect import detect, DetectorFactory
+import logging
+
+# Configuración básica opcional (para que logging funcione sin errores y muestre mensajes)
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # Para resultados consistentes
 DetectorFactory.seed = 0
@@ -30,9 +34,9 @@ def _is_latin_text(text: str) -> bool:
 def _translate_with_ai(text: str, title: str, model='mistral') -> str | None:
     """Traduce un texto usando un modelo local de Ollama."""
     try:
-        # Detectar si el título es español y contiene números (ej. "Nadie 2") -> no traducir
-        if detect(title) == 'es' and re.search(r'\d', title):
-            logging.info(f"Título '{title}' es español con número; manteniendo original.")
+        # Saltar traducción si ya es español o contiene números (mantener como está)
+        if detect(title) == 'es' or re.search(r'\d', title):
+            logging.info(f"Título '{title}' ya es adecuado (español o con número); manteniendo original.")
             return title
         
         prompt = f"""Traduce el siguiente texto al español de forma natural, sin añadir ninguna explicación adicional:
@@ -43,9 +47,6 @@ def _translate_with_ai(text: str, title: str, model='mistral') -> str | None:
         ])
         translated_text = response['message']['content'].strip()
         translated_text = re.sub(r'\s*\([^)]*\)|\n.*', '', translated_text).strip()
-        # Validación para nombres propios usando el título pasado como argumento
-        if title.lower() in ['pitufos', 'smurfs', 'star wars', 'harry potter']:  # Lista de nombres propios comunes
-            return title  # Mantener original
         return translated_text
     except Exception as e:
         print(f"❌ Error al traducir el título con Ollama: {e}")
