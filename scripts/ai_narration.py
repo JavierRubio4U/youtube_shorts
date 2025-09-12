@@ -11,6 +11,9 @@ from moviepy.editor import AudioFileClip
 import ollama
 from langdetect import detect, DetectorFactory
 
+import warnings
+warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")
+
 # Para resultados consistentes
 DetectorFactory.seed = 0
 
@@ -36,7 +39,7 @@ def _trim_to_words(text: str, max_words: int) -> str:
     t = " ".join(words[:max_words])
     return t.rstrip(",;:") + "…"
 
-def _narracion_from_synopsis(sinopsis: str, target_words: int = 80) -> str | None:
+def _narracion_from_synopsis(sinopsis: str, target_words: int = 65) -> str | None:
     sinopsis = _normalize_text(sinopsis)
     if not sinopsis:
         return None
@@ -172,7 +175,7 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir=None) -> tuple
     
     if sinopsis_generada:
         sel["sinopsis_generada"] = sinopsis_generada
-        narracion = _narracion_from_synopsis(sinopsis_generada, target_words=80)
+        narracion = _narracion_from_synopsis(sinopsis_generada, target_words=65)
     else:
         narracion = None
 

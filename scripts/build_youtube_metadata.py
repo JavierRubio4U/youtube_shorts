@@ -30,6 +30,11 @@ def _is_latin_text(text: str) -> bool:
 def _translate_with_ai(text: str, title: str, model='mistral') -> str | None:
     """Traduce un texto usando un modelo local de Ollama."""
     try:
+        # Detectar si el título es español y contiene números (ej. "Nadie 2") -> no traducir
+        if detect(title) == 'es' and re.search(r'\d', title):
+            logging.info(f"Título '{title}' es español con número; manteniendo original.")
+            return title
+        
         prompt = f"""Traduce el siguiente texto al español de forma natural, sin añadir ninguna explicación adicional:
         {text}
         """

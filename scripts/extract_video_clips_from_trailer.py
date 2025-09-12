@@ -207,14 +207,20 @@ def main():
         try:
             saved_paths = save_clips(best_clips, tmdb_id, slug, tmpdir=tmpdir)
             logging.info(f"Clips extraídos y guardados: {saved_paths}")
+
+            # Actualizar manifiesto con las rutas de los clips
+            manifest_path = STATE / "assets_manifest.json"
+            if manifest_path.exists():
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest["video_clips"] = [p for p in saved_paths if Path(ROOT / p).exists()]
+                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+                logging.info(f"Manifiesto actualizado con clips: {manifest_path}")
+            else:
+                logging.warning("Manifiesto no encontrado. No se actualizaron los clips.")
         except Exception as e:
             logging.error(f"Fallo al guardar clips: {e}")
     except Exception as e:
         logging.error(f"Error inesperado en el proceso: {e}")
-    # finally:
-    #     if os.path.exists(tmpdir):
-    #         cleanup_temp_files(tmpdir)  # Limpia archivos temporales al terminar
-    #         shutil.rmtree(tmpdir, ignore_errors=True)  # Forzar eliminación si persisten bloqueos
-                                                     
+                                                    
 if __name__ == "__main__":
     main()

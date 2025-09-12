@@ -27,25 +27,35 @@ import upload_youtube
 
 STATE = ROOT / "output" / "state"
 
-def main():
-    # Paso 1: Seleccionar siguiente película (simulado)
-    print("▶ Paso 1: seleccionar siguiente película…")
-    sel = select_next_release.pick_next()
-    if not sel:
-        print("🛑 No se seleccionó una nueva película. Proceso detenido.")
-        return
+def main():  
+    # # Paso 1: Seleccionar siguiente película (simulado)
+    # print("▶ Paso 1: seleccionar siguiente película…")
+    # sel = select_next_release.pick_next()
+    # if sel:
+    #     tmdb_id = str(sel.get("tmdb_id"))
+    #     clips_dir = ROOT / "assets" / "video_clips"
+    #     for file in clips_dir.iterdir():
+    #         if file.is_file() and not file.name.startswith(tmdb_id):
+    #             try:
+    #                 file.unlink()
+    #                 logging.info(f"Clip viejo eliminado: {file.name}")
+    #             except Exception as e:
+    #                 logging.warning(f"No se pudo eliminar {file.name}: {e}")
+    # else:
+    #     print("🛑 No se seleccionó película. Proceso detenido.")
+    #     return
 
-    # Paso 2: Descargar assets (simulado)
-    print("▶ Paso 2: descargar assets (vertical/letterbox, 8 backdrops)…")
-    download_assets.main()
+    # # Paso 2: Descargar assets (simulado)
+    # print("▶ Paso 2: descargar assets (vertical/letterbox, 8 backdrops)…")
+    # download_assets.main()
 
-    # Paso 2.5: Extraer clips del tráiler
-    print("▶ Paso 2.5: extraer clips del tráiler...")
-    extract_video_clips_from_trailer.main()
+    # # Paso 2.5: Extraer clips del tráiler
+    # print("▶ Paso 2.5: extraer clips del tráiler...")
+    # extract_video_clips_from_trailer.main()
 
-    # Paso 3: Generar metadata de YouTube
-    print("▶ Paso 3: generar metadata de YouTube…")
-    build_youtube_metadata.main()
+    # # Paso 3: Generar metadata de YouTube
+    # print("▶ Paso 3: generar metadata de YouTube…")
+    # build_youtube_metadata.main()
 
     # Paso 4: Generar video short (MP4)
     print("▶ Paso 4: generar video short (MP4)…")
