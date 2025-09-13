@@ -5,12 +5,11 @@ import shutil
 from pathlib import Path
 import logging
 import yt_dlp
-import imagehash
-from PIL import Image
-from moviepy.editor import VideoFileClip
 import unicodedata
 import re
 import time
+# Nueva modificación: Importar subprocess para FFmpeg
+import subprocess
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -20,10 +19,10 @@ CLIPS_DIR = ROOT / "assets" / "video_clips"  # Carpeta final para clips validado
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
 
 SEL_FILE = STATE / "next_release.json"
-CLIP_INTERVAL = 10  # Extraer clips cada 10 segundos
+CLIP_INTERVAL = 5  # Nueva modificación: Reducir intervalo a 5s para más clips y mejor selección
 CLIP_DURATION = 6  # Duración de cada clip ajustada a 6 segundos
 MAX_CLIPS = 4  # Máximo de 4 clips para 24 segundos
-HASH_SIMILARITY_THRESHOLD = 5  # Umbral de distancia Hamming
+SKIP_INITIAL_CLIPS = 2  # Nueva modificación: Número de clips iniciales a quitar (para evitar intros/anuncios)
 
 def slugify(text: str, maxlen: int = 60) -> str:
     """Convierte texto en un slug seguro para nombres de archivo."""
@@ -34,9 +33,12 @@ def slugify(text: str, maxlen: int = 60) -> str:
     return (s or "title")[:maxlen]
 
 def download_trailer(url, output_dir):
+    # Nueva modificación: Forzar descarga en máxima calidad (4K si disponible, best video+audio)
     ydl_opts = {
         'outtmpl': os.path.join(output_dir, 'trailer.%(ext)s'),
-        'format': 'best',
+        'format': 'bestvideo[height>=2160]+bestaudio/bestvideo+bestaudio',  # Prioriza 4K + best audio
+        'merge_output_format': 'mp4',  # Merge sin pérdida
+        'no_playlist': True,  # Solo video único
         'quiet': True
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -44,103 +46,61 @@ def download_trailer(url, output_dir):
     return next(f for f in os.listdir(output_dir) if f.startswith('trailer.'))
 
 def extract_clips(video_path, interval=CLIP_INTERVAL, clip_dur=CLIP_DURATION, tmpdir=None):
-    clip = VideoFileClip(video_path)
-    duration = clip.duration
+    # Nueva modificación: Usar FFmpeg para extraer clips sin re-encode (copy streams para mantener calidad)
     clips = []
     paths = []
-    for t in range(0, int(duration - clip_dur), interval):
-        subclip = clip.subclip(t, t + clip_dur)
-        if subclip.duration >= clip_dur - 0.1 and subclip.reader is not None:  # Validar integridad con margen
-            tmp_path = os.path.join(tmpdir, f"clip_{t}.mp4") if tmpdir else os.path.join(os.path.dirname(video_path), f"clip_{t}.mp4")
-            try:
-                subclip.write_videofile(tmp_path, codec="libx264", audio=False, verbose=False)  # Deshabilitar audio
-                logging.debug(f"Clip en t={t} generado sin audio en {tmp_path}")
-                # Revalidar y recrear el clip desde el archivo
-                if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
-                    new_clip = VideoFileClip(tmp_path)
-                    if new_clip.duration > 0 and new_clip.reader is not None:
-                        clips.append(new_clip)
-                        paths.append(tmp_path)
-                    else:
-                        logging.warning(f"Clip en t={t} inválido después de recreación: duración o reader nulo.")
-                        os.remove(tmp_path)
-                else:
-                    logging.warning(f"Clip en t={t} descartado: archivo no creado o vacío.")
-            except Exception as e:
-                logging.warning(f"Error al crear clip en t={t}: {e}")
-            finally:
-                if 'subclip' in locals():
-                    subclip.close()  # Cerrar explícitamente el subclip original
-        else:
-            logging.warning(f"Clip en t={t} descartado por duración insuficiente o inválido.")
-    clip.close()  # Cerrar el clip principal
-    return clips, paths
+    # Obtener duración total con ffprobe
+    duration_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(video_path)]
+    duration = float(subprocess.check_output(duration_cmd).decode().strip())
+    
+    # Nueva modificación: Empezar desde un offset para generar más clips y luego quitar los primeros SKIP_INITIAL_CLIPS
+    start_time = 0  # Mantener start en 0, pero quitar después
+    for t in range(int(start_time), int(duration - clip_dur), interval):
+        out_clip = tmpdir / f"clip_{t}.mp4" if tmpdir else Path(os.path.dirname(video_path)) / f"clip_{t}.mp4"
+        cmd = [
+            'ffmpeg', '-y', '-ss', str(t), '-i', str(video_path),
+            '-t', str(clip_dur), '-c:v', 'copy', '-c:a', 'copy',  # Sin re-encode!
+            str(out_clip)
+        ]
+        subprocess.run(cmd, check=True)
+        if out_clip.exists() and out_clip.stat().st_size > 0:
+            paths.append(out_clip)
+            # No cargar con MoviePy aquí, ya que quitamos similitud; solo paths
+    
+    # Nueva modificación: Quitar los primeros SKIP_INITIAL_CLIPS
+    if len(paths) > SKIP_INITIAL_CLIPS:
+        paths = paths[SKIP_INITIAL_CLIPS:]
+        logging.info(f"Quitados los primeros {SKIP_INITIAL_CLIPS} clips para evitar intros/anuncios.")
+    
+    logging.info(f"{len(paths)} clips extraídos sin pérdida.")
+    return paths  # Nueva modificación: Retornar solo paths, sin clips MoviePy
 
-def filter_similar_clips(clip_paths, threshold=HASH_SIMILARITY_THRESHOLD, tmpdir=None):
-    unique_indices = []
-    filtered_count = 0
-    for i, path1 in enumerate(clip_paths):
-        try:
-            with VideoFileClip(path1) as vclip1:
-                if vclip1.duration > 0:
-                    is_similar = False
-                    for j, path2 in enumerate(clip_paths):
-                        if i != j and os.path.exists(path2):
-                            try:
-                                with VideoFileClip(path2) as vclip2:
-                                    if vclip2.duration > 0:
-                                        hash1 = imagehash.average_hash(Image.open(extract_frame_from_clip(path1, tmpdir)))
-                                        hash2 = imagehash.average_hash(Image.open(extract_frame_from_clip(path2, tmpdir)))
-                                        distance = hash1 - hash2
-                                        logging.debug(f"Distancia Hamming entre clip {i} y clip {j}: {distance}")
-                                        if distance <= threshold:
-                                            is_similar = True
-                                            filtered_count += 1
-                                            if i < j:  # Mantener el clip de menor índice y descartar el de mayor índice
-                                                logging.info(f"Clip {j} descartado por similitud con clip {i} (distancia Hamming: {distance})")
-                                            else:
-                                                logging.info(f"Clip {i} descartado por similitud con clip {j} (distancia Hamming: {distance})")
-                                                is_similar = True  # Asegurar que se marque como descartado si i > j
-                                            break
-                            except Exception as e:
-                                logging.warning(f"Error al comparar clips {i} y {j}: {e}")
-                    if not is_similar:
-                        unique_indices.append(i)
-        except Exception as e:
-            logging.warning(f"Error al procesar clip {i}: {e}")
-    return unique_indices, filtered_count
+def select_best_clips(clip_paths, max_clips=MAX_CLIPS):
+    # Nueva modificación: Selección simple de clips espaciados uniformemente (sin similitud)
+    total = len(clip_paths)
+    if total == 0:
+        return []
+    step = max(1, total // max_clips)  # Espaciar para cubrir el trailer
+    selected = [clip_paths[i * step] for i in range(max_clips) if i * step < total]
+    logging.info(f"{len(selected)} clips seleccionados espaciados.")
+    return selected
 
-def extract_frame_from_clip(clip_path, tmpdir=None):
-    clip = VideoFileClip(clip_path)
-    try:
-        frame = clip.get_frame(0)  # Primer frame como representativo
-        if frame is not None and frame.size > 0:
-            img = Image.fromarray(frame)
-            tmp_path = os.path.join(tmpdir, f"frame_from_clip_{os.path.basename(clip_path)}.jpg") if tmpdir else os.path.join(os.path.dirname(clip_path), f"frame_from_clip_{os.path.basename(clip_path)}.jpg")
-            img.save(tmp_path)
-        else:
-            logging.error(f"Frame inválido para {clip_path}")
-            tmp_path = None
-    except Exception as e:
-        logging.error(f"Error al extraer frame de {clip_path}: {e}")
-        tmp_path = None
-    finally:
-        clip.close()  # Cerrar explícitamente el clip
-    return tmp_path
-
-def save_clips(clips, tmdb_id, slug, tmpdir=None):
+def save_clips(clip_paths, tmdb_id, slug):
     saved_paths = []
-    for i, clip in enumerate(clips):
-        if clip is not None and clip.duration >= CLIP_DURATION - 0.1 and clip.reader is not None:  # Validar integridad
-            filename = f"{tmdb_id}_{slug}_bd_v{i+1:02d}.mp4"
-            path = CLIPS_DIR / filename
-            try:
-                clip.write_videofile(str(path), codec="libx264", audio=False, verbose=False)  # Deshabilitar audio
-                saved_paths.append(str(path.relative_to(ROOT)))
-            except Exception as e:
-                logging.error(f"Error al guardar clip {filename}: {e}")
+    for i, path in enumerate(clip_paths):
+        filename = f"{tmdb_id}_{slug}_bd_v{i+1:02d}.mp4"
+        out_path = CLIPS_DIR / filename
+        # Nueva modificación: Copiar clip con FFmpeg sin re-encode (mantiene calidad, quita audio)
+        cmd = [
+            'ffmpeg', '-y', '-i', str(path),
+            '-c:v', 'copy', '-an',  # Copia video, quita audio
+            str(out_path)
+        ]
+        subprocess.run(cmd, check=True)
+        if out_path.exists():
+            saved_paths.append(str(out_path.relative_to(ROOT)))
         else:
-            logging.warning(f"Clip {i} omitido por ser inválido o nulo: {clip}")
+            logging.error(f"Error al guardar clip {filename}")
     return saved_paths
 
 def cleanup_temp_files(tmpdir):
@@ -190,22 +150,19 @@ def main():
 
         logging.info("Extrayendo clips...")
         try:
-            clips, clip_paths = extract_clips(trailer_path, tmpdir=tmpdir)
-            logging.info(f"Clips extraídos: {len(clips)}")
+            clip_paths = extract_clips(trailer_path, tmpdir=tmpdir)
+            logging.info(f"Clips extraídos: {len(clip_paths)}")
         except Exception as e:
             logging.error(f"Fallo al extraer clips: {e}")
             return
 
-        logging.info("Filtrando clips similares...")
-        unique_indices, filtered_count = filter_similar_clips(clip_paths, tmpdir=tmpdir)
-        unique_clips = [clips[i] for i in unique_indices if i < len(clips)]  # Evitar índices inválidos
-
+        # Nueva modificación: Quitar filtrado de similitud, usar selección simple espaciada
         logging.info("Seleccionando los mejores clips...")
-        best_clips = unique_clips[:MAX_CLIPS]  # Toma los primeros únicos tras filtrar
+        best_paths = select_best_clips(clip_paths)
 
         logging.info("Guardando clips...")
         try:
-            saved_paths = save_clips(best_clips, tmdb_id, slug, tmpdir=tmpdir)
+            saved_paths = save_clips(best_paths, tmdb_id, slug)
             logging.info(f"Clips extraídos y guardados: {saved_paths}")
 
             # Actualizar manifiesto con las rutas de los clips

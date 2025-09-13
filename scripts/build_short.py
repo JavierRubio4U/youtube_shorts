@@ -1,15 +1,13 @@
 # scripts/build_short.py
 import time
 import unicodedata
-import tempfile
-import imagehash
 import random  # Para música aleatoria
 from pathlib import Path
-import sys, json, os, logging, re
+import json, os, logging, re
 from moviepy.editor import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip, concatenate_audioclips
 from moviepy.audio.AudioClip import CompositeAudioClip, AudioClip  # Para mezcla y silencio
 from moviepy.audio.fx.all import volumex, audio_fadein, audio_fadeout  # Para fades y volumen
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import numpy as np
 from overlay import make_overlay_image
 from ai_narration import generate_narration
@@ -53,18 +51,6 @@ def extract_frame_from_path(path: Path, tmpdir: Path) -> str | None:
             logging.error(f"Error al extraer frame de {path}: {e}")
             return None
 
-def is_similar_image(img1_path: Path, img2_path: Path, threshold: int) -> tuple[bool, int]:
-    """Compara dos imágenes usando imagehash y devuelve si son similares y la distancia."""
-    try:
-        hash1 = imagehash.average_hash(Image.open(img1_path))
-        hash2 = imagehash.average_hash(Image.open(img2_path))
-        distance = hash1 - hash2
-        logging.debug(f"Distancia Hamming entre {img1_path.name} y {img2_path.name}: {distance}")
-        return distance <= threshold, distance
-    except Exception as e:
-        logging.error(f"Error al comparar {img1_path} y {img2_path}: {e}")
-        return False, 0
-
 def clip_from_img(path: Path, dur: float) -> ImageClip:
     """Crea un clip de video a partir de una imagen con duración dada."""
     try:
@@ -84,35 +70,6 @@ def clip_from_img(path: Path, dur: float) -> ImageClip:
     except Exception as e:
         logging.error(f"Error al cargar imagen {path}: {e}")
         return None
-
-def filter_similar_images(image_paths: list[Path], poster_path: Path | None = None, threshold: int = HASH_SIMILARITY_THRESHOLD, tmpdir: Path = None) -> list[Path]:
-    """Filtra imágenes o clips similares basándose en imagehash."""
-    if not image_paths:
-        return []
-    unique_images = []
-    for i, path1 in enumerate(image_paths):
-        is_similar = False
-        for j, path2 in enumerate(image_paths):
-            if i != j:
-                img1_path = Path(extract_frame_from_path(path1, tmpdir)) if extract_frame_from_path(path1, tmpdir) else None
-                img2_path = Path(extract_frame_from_path(path2, tmpdir)) if extract_frame_from_path(path2, tmpdir) else None
-                if img1_path and img2_path and img1_path.exists() and img2_path.exists():
-                    is_sim, distance = is_similar_image(img1_path, img2_path, threshold)
-                    if is_sim:
-                        is_similar = True
-                        logging.info(f"Clip {path1.name} descartado por similitud con {path2.name} (distancia Hamming: {distance})")
-                        break
-        if not is_similar and poster_path and poster_path.is_file():
-            img1_path = Path(extract_frame_from_path(path1, tmpdir)) if extract_frame_from_path(path1, tmpdir) else None
-            if img1_path and img1_path.exists():
-                is_sim, distance = is_similar_image(img1_path, poster_path, threshold)
-                if is_sim:
-                    is_similar = True
-                    logging.info(f"Clip {path1.name} descartado por similitud con el póster (distancia Hamming: {distance})")
-        if not is_similar:
-            unique_images.append(path1)
-    logging.info(f"Clips seleccionados: {len(unique_images[:MAX_BACKDROPS])}")
-    return unique_images[:MAX_BACKDROPS]
 
 def resize_to_9_16(clip):
     logging.debug(f"Redimensionando clip: tamaño original {clip.w}x{clip.h}, ratio {clip.w / clip.h}")
@@ -170,10 +127,10 @@ def main():
 
     if not video_clips and poster_path and poster_path.exists():
         logging.warning("No hay clips de video. Usando póster como fallback.")
-        video_clips = [poster_path]
+        video_clips = [poster_path] * MAX_BACKDROPS  # Nueva modificación: Repetir póster como fallback para clips si no hay video
 
-    # Filtrar clips similares
-    bd_paths = filter_similar_images(video_clips, poster_path, HASH_SIMILARITY_THRESHOLD, tmpdir)
+    # Nueva modificación: Quitar filtrado de similitud; asumir video_clips ya seleccionados en extract_video_clips
+    bd_paths = video_clips[:MAX_BACKDROPS]
 
     # Crear clips
     clips = []
@@ -290,7 +247,13 @@ def main():
             logging.error(f"Error al cargar audio desde {voice_path}: {e}")
 
     out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
-    final_clip.write_videofile(str(out_file), fps=30, codec="libx264", audio_codec="aac")
+    # Nueva modificación: Optimizar write_videofile con settings de alta calidad (60fps, high bitrate, CRF bajo)
+    final_clip.write_videofile(
+        str(out_file), fps=60,  # Sube a 60fps para smooth
+        codec="libx264", preset="veryslow",  # Máxima calidad, slow encode
+        bitrate="20000k",  # Alto bitrate para details
+        ffmpeg_params=["-crf", "18"]  # CRF bajo=alta calidad (0=lossless, 18=excelente)
+    )
     logging.info(f"🎬 Short generado en: {out_file}")
     return str(out_file)
 

@@ -145,8 +145,8 @@ def upload_video(video_path: str, meta: dict):
         video_id = response.get("id")
         if video_id:
             # --- AQUÍ VA EL CÓDIGO ---
-            print(f"✅ Video subido con ID: {video_id}. Esperando 15 segundos...")
-            time.sleep(15) # <-- 2. AÑADE LA PAUSA AQUÍ
+            print(f"✅ Video subido con ID: {video_id}. Esperando 30 segundos...")
+            time.sleep(30) # <-- 2. AÑADE LA PAUSA AQUÍ
             # Subir thumbnail: usar el póster almacenado
             tmdb_id = meta["tmdb_id"]
             thumbnail_path = ROOT / "assets" / "posters" / f"{tmdb_id}_poster.jpg"

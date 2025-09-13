@@ -47,6 +47,10 @@ def download_image(url: str, out_path: Path) -> Path | None:
         return None
     try:
         data = http_get(url)
+        # Nueva modificación: Verificar si la imagen descargada tiene contenido válido (no placeholder vacío)
+        if len(data) == 0:
+            logging.warning(f"Imagen descargada de {url} está vacía (0 bytes). Omitiendo.")
+            return None
         return save_binary(out_path, data)
     except Exception as e:
         logging.error(f"Fallo al descargar imagen de {url}: {e}")
@@ -76,6 +80,8 @@ def main():
     # Póster
     if posters:
         p_url = posters[0]
+        # Nueva modificación: Preferir la versión de mayor resolución disponible en TMDB (original en vez de w500 si aplica)
+        p_url = p_url.replace("/w500/", "/original/") if "/w500/" in p_url else p_url  # Asumiendo URLs estándar de TMDB
         p_name = f"{tmdb_id}_poster.jpg"
         p_path = POSTERS_DIR / p_name
         p_saved = download_image(p_url, p_path)

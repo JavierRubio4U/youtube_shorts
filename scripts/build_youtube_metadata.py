@@ -39,9 +39,15 @@ def _translate_with_ai(text: str, title: str, model='mistral') -> str | None:
             logging.info(f"Título '{title}' ya es adecuado (español o con número); manteniendo original.")
             return title
         
-        prompt = f"""Traduce el siguiente texto al español de forma natural, sin añadir ninguna explicación adicional:
-        {text}
-        """
+        # Nueva: Buscar título oficial en español para verificar si es nombre propio
+        search_query = f"título película en español {title}"
+        # Aquí iría la llamada a web_search, pero como es código, simular o integrar tool
+        # Por ejemplo, resultados = web_search(search_query, num_results=5)
+        # Parsear resultados para extraer título común (ej. el más frecuente)
+        # Para este ejemplo, asumir que obtienes 'Los Pitufos' para 'Pitufos'
+        # En código real, implementar parseo de resultados
+
+        prompt = f"""Si el siguiente título es un nombre propio de franquicia o película popular, no lo traduzcas y mantén el original. De lo contrario, tradúcelo al español de forma natural, sin añadir ninguna explicación adicional. Título: {text}"""
         response = ollama.chat(model=model, messages=[
             {'role': 'user', 'content': prompt}
         ])
@@ -65,8 +71,8 @@ def _shorten(text: str, max_len: int) -> str:
     return text
 
 def _make_title(titulo: str, fecha: str) -> str:
-    base = f"{titulo} — estreno en España {fecha}".strip()
-    return _shorten(base, 90)
+    base = f"{titulo} — estreno {fecha}".strip()
+    return _shorten(base, 60)
 
 def _make_tags(generos, reparto_top, max_cast=3):
     tags = []
@@ -135,7 +141,7 @@ def main():
     made_for_kids = _is_made_for_kids(certificacion, generos)
 
     lines = []
-    lines.append(f"{titulo} — estreno en España: {fecha_es}".strip())
+    lines.append(f"{titulo} — estreno: {fecha_es}".strip())
     if generos:
         lines.append("Género: " + ", ".join(generos))
     if reparto:

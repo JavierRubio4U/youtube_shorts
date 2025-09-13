@@ -4,7 +4,8 @@ import re
 import subprocess
 from pathlib import Path
 import logging
-import os  # Añadido para manejo de rutas
+import logging
+import ollama
 
 from moviepy.editor import AudioFileClip
 
@@ -40,55 +41,84 @@ def _trim_to_words(text: str, max_words: int) -> str:
     return t.rstrip(",;:") + "…"
 
 # --- Funciones de IA ---
-def _generate_narration_with_ai(sel: dict, model='mistral') -> str | None:
-    """Genera una sinopsis larga y limpia con Ollama."""
-    try:
-        prompt = f"""
-        Genera una sinopsis detallada y atractiva de EXACTAMENTE 50-65 palabras en español para la película '{sel.get("titulo")}'. 
-        NO excedas 65 palabras bajo ninguna circunstancia. Cuenta las palabras y ajusta si es necesario.
-        IMPORTANTE: El título '{sel.get("titulo")}' es un nombre propio de la franquicia y NO debe traducirse ni cambiarse. 
-        La sinopsis debe ser un párrafo cohesivo y no debe listar el título, los géneros, el reparto ni ninguna otra metadata.
-        Utiliza la siguiente información para inspirarte:
+def _generate_narration_with_ai(sel: dict, model='mistral', max_words=60, min_words=50) -> str | None:
+    """
+    Genera una sinopsis con Ollama, con un intento de auto-corrección si excede la longitud.
+    """
+    initial_prompt = f"""
+    Genera una sinopsis detallada y atractiva de entre {min_words} y {max_words} palabras en español para la película '{sel.get("titulo")}'.
+    Es crucial que la sinopsis finalice con una oración completa y natural.
+    NO excedas las {max_words} palabras.
+    El título '{sel.get("titulo")}' es un nombre propio y NO debe traducirse.
+    La sinopsis debe ser un párrafo cohesivo y no debe listar metadata como reparto o géneros.
+    Usa la siguiente información para inspirarte:
 
-        Título original (no traducir): {sel.get("titulo")}
-        Sinopsis original: {sel.get("sinopsis")}
-        Géneros: {', '.join(sel.get("generos"))}
-        Palabras clave: {', '.join(sel.get("keywords"))}
-        Reparto top: {', '.join(sel.get("reparto_top"))}
-        Certificación: {sel.get("certificacion_ES")}
-        """
-        response = ollama.chat(model=model, messages=[
-            {'role': 'user', 'content': prompt}
-        ])
-        generated = response['message']['content'].strip()
-        # Validación mínima de longitud (log si es corto o largo, pero no recortar)
-        words = len(generated.split())
-        if words < 50:
-            logging.warning(f"Narración generada con solo {words} palabras (mínimo deseado 50).")
-        elif words > 65:
-            logging.warning(f"Narración generada con {words} palabras (máximo deseado 65).")
-        return generated
+    Título: {sel.get("titulo")}
+    Sinopsis original: {sel.get("sinopsis")}
+    Géneros: {', '.join(sel.get("generos"))}
+    """
+    
+    try:
+        # --- Primer Intento ---
+        logging.info("Generando sinopsis (Intento 1)...")
+        response = ollama.chat(model=model, messages=[{'role': 'user', 'content': initial_prompt}])
+        generated_text = response['message']['content'].strip()
+        word_count = len(generated_text.split())
+
+        # Si el primer intento es demasiado largo, lo corregimos
+        if word_count > max_words:
+            logging.warning(
+                f"Intento 1 generó {word_count} palabras (máximo {max_words}). Pidiendo a la IA que lo resuma."
+            )
+            
+            # --- Segundo Intento (Auto-Corrección) ---
+            refinement_prompt = f"""
+            El siguiente texto es demasiado largo. Resume este texto para que tenga menos de {max_words} palabras.
+            El resultado DEBE ser una frase completa y sonar natural. No lo cortes.
+            Simplemente devuelve el texto corregido, sin añadir introducciones como 'Aquí tienes el resumen:'.
+
+            Texto a corregir:
+            "{generated_text}"
+            """
+            response = ollama.chat(model=model, messages=[{'role': 'user', 'content': refinement_prompt}])
+            generated_text = response['message']['content'].strip()
+            word_count = len(generated_text.split())
+
+        # Verificación final
+        if word_count > max_words or word_count < min_words:
+            logging.warning(f"La narración final tiene {word_count} palabras, fuera del rango deseado ({min_words}-{max_words}).")
+        else:
+            logging.info(f"Narración generada con éxito ({word_count} palabras).")
+            
+        return generated_text
+
     except Exception as e:
         logging.error(f"Error al generar narración con Ollama: {e}")
         return None
     
 def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir=None) -> tuple[str | None, Path | None]:
-    """Genera la narración con IA y sintetiza el audio."""
+    """
+    Genera la narración con IA (usando auto-corrección) y sintetiza el audio.
+    """
     logging.info("🔎 Generando sinopsis con IA local...")
+    # La función de generación ahora se encarga de la longitud.
     narracion = _generate_narration_with_ai(sel)
     
-    logging.info(f"Narración generada: {narracion[:100]}...") if narracion else logging.info("No se generó narración.")
+    # Ya no necesitamos el log de "recortada" porque no se recorta.
+    logging.info(f"Narración generada: {narracion[:100]}...") if narracion else logging.warning("No se generó narración.")
 
     voice_path = None
     if narracion:
-        narracion = _trim_to_words(narracion, 65)  # Recorta a máximo 65 palabras
-        logging.info(f"Narración recortada a {len(narracion.split())} palabras para ajustar duración.")
+        # ¡¡¡ LA LÍNEA DE _trim_to_words HA SIDO ELIMINADA !!!
+        
         voice_path = (tmpdir / f"{tmdb_id}_{slug}_narracion.wav") if tmpdir else (STATE / f"{tmdb_id}_{slug}_narracion.wav")
         if not voice_path.exists():
             voice_path = _synthesize_xtts_with_pauses(narracion, voice_path, tmpdir) or _synthesize_tts_coqui(narracion, voice_path)
         
         if voice_path:
-            logging.info(f"Audio de voz generado con duración de {AudioFileClip(str(voice_path)).duration:.2f} segundos.")
+            # Este log sigue siendo útil para saber la duración final del audio
+            audio_duration = AudioFileClip(str(voice_path)).duration
+            logging.info(f"Audio de voz generado con duración de {audio_duration:.2f} segundos.")
         else:
             logging.warning("No se pudo generar el audio de voz. El vídeo no tendrá narración.")
 
@@ -102,15 +132,6 @@ def _clean_for_tts(text: str) -> str:
     text = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ,\.\-\!\?\:\;\'\"]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()[:900]
 
-def _retime_wav_ffmpeg(in_wav: Path, out_wav: Path, atempo: float = 0.92) -> bool:
-    try:
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-               "-i", str(in_wav), "-filter:a", f"atempo={atempo}", str(out_wav)]
-        res = subprocess.run(cmd, check=True, capture_output=True)
-        return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 0
-    except Exception as e:
-        logging.error(f"Error en _retime_wav_ffmpeg: {e}")
-        return False
 
 def _concat_wav_ffmpeg(inputs: list[Path], out_wav: Path) -> bool:
     if not inputs: return False
