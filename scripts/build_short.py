@@ -34,23 +34,6 @@ def slugify(text: str, maxlen: int = 60) -> str:
     s = re.sub(r'[\s_-]+', '-', s).strip('-')
     return (s or "title")[:maxlen]
 
-def extract_frame_from_path(path: Path, tmpdir: Path) -> str | None:
-    """Extrae un frame representativo de un video o devuelve la ruta de una imagen."""
-    if path.suffix.lower() in ['.jpg', '.jpeg', '.png']:
-        return str(path)
-    else:
-        try:
-            clip = VideoFileClip(str(path))
-            frame = clip.get_frame(0)
-            img = Image.fromarray(frame)
-            tmp_path = os.path.join(tmpdir, f"frame_from_{path.name}.jpg")
-            img.save(tmp_path)
-            clip.close()
-            return tmp_path
-        except Exception as e:
-            logging.error(f"Error al extraer frame de {path}: {e}")
-            return None
-
 def clip_from_img(path: Path, dur: float) -> ImageClip:
     """Crea un clip de video a partir de una imagen con duración dada."""
     try:

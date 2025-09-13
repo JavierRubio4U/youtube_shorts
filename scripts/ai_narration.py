@@ -46,7 +46,7 @@ def _generate_narration_with_ai(sel: dict, model='mistral', max_words=60, min_wo
     Genera una sinopsis con Ollama, con un intento de auto-corrección si excede la longitud.
     """
     initial_prompt = f"""
-    Genera una sinopsis detallada y atractiva de entre {min_words} y {max_words} palabras en español para la película '{sel.get("titulo")}'.
+    Genera una sinopsis detallada y atractiva de entre {min_words} y {max_words} palabras en español de España (castellano).
     Es crucial que la sinopsis finalice con una oración completa y natural.
     NO excedas las {max_words} palabras.
     El título '{sel.get("titulo")}' es un nombre propio y NO debe traducirse.

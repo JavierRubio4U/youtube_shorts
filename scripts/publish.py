@@ -72,18 +72,18 @@ def main():
     else:
         print("⚠️ Video generado con problemas o no completado. Revisa el log para detalles.")
 
-    # Paso 5: Subir a YouTube (descomentar cuando se levante la restricción)
-    if mp4_path and os.path.exists(mp4_path):
-        print("▶ Paso 5: subir a YouTube…")
-        video_id = upload_youtube.main(mp4_path)
-        if video_id:
-            meta = json.loads((STATE / "youtube_metadata.json").read_text(encoding="utf-8"))
-            select_next_release.mark_published(int(meta["tmdb_id"]))
-            print("✅ Publicado y marcado. Video:", f"https://studio.youtube.com/video/{video_id}/edit")
-        else:
-            print("🛑 La subida falló o se omitió. No se marcó como publicado.")
-    else:
-        print("🛑 No se puede subir: video no generado o inválido.")
+    # # Paso 5: Subir a YouTube (descomentar cuando se levante la restricción)
+    # if mp4_path and os.path.exists(mp4_path):
+    #     print("▶ Paso 5: subir a YouTube…")
+    #     video_id = upload_youtube.main(mp4_path)
+    #     if video_id:
+    #         meta = json.loads((STATE / "youtube_metadata.json").read_text(encoding="utf-8"))
+    #         select_next_release.mark_published(int(meta["tmdb_id"]))
+    #         print("✅ Publicado y marcado. Video:", f"https://studio.youtube.com/video/{video_id}/edit")
+    #     else:
+    #         print("🛑 La subida falló o se omitió. No se marcó como publicado.")
+    # else:
+    #     print("🛑 No se puede subir: video no generado o inválido.")
 
     # Limpieza final (solo si todo salió bien)
     if mp4_path and os.path.exists(mp4_path):
