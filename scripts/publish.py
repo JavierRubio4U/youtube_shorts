@@ -9,7 +9,7 @@ import tempfile
 from moviepy import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-from overlay import make_overlay_image
+#from overlay import make_overlay_image
 from ai_narration import generate_narration
 
 ROOT = Path(__file__).resolve().parents[1]

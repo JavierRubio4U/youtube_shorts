@@ -161,7 +161,6 @@ def main():
 
     lines.append("")
     lines.append("Créditos de datos e imágenes: The Movie Database (TMDb)")
-    lines.append("Voz sintética: Coqui TTS (modelo xtts_v2)")
 
     description = "\n".join(lines)
 

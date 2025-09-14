@@ -6,7 +6,7 @@ from pathlib import Path
 import json, os, logging, re
 from PIL import Image
 import numpy as np
-from overlay import make_overlay_image
+#from overlay import make_overlay_image
 from ai_narration import generate_narration
 
 from moviepy import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip, concatenate_audioclips
@@ -196,7 +196,7 @@ def main():
                         logging.debug(f"Música ajustada a {final_clip.duration}s")
                         
                         # Fixed: Use .fx with afx instead of .with_effects
-                        music_clip = music_clip.with_effects([afx.AudioFadeIn(1.0), afx.AudioFadeOut(1.0), afx.MultiplyVolume(0.15)])
+                        music_clip = music_clip.with_effects([afx.AudioFadeIn(1.0), afx.AudioFadeOut(1.0), afx.MultiplyVolume(0.10)])
                         final_audio = CompositeAudioClip([audio_clip, music_clip])
                         logging.debug(f"Mezcla de audio completada: duración {final_audio.duration}s")
                         
