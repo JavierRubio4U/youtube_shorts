@@ -1,14 +1,28 @@
-# --- Core video ---
-moviepy==1.0.3
-imageio==2.35.1
-imageio-ffmpeg==0.4.9
-Pillow==10.4.0
+# --- Core video and image processing ---
+[cite_start]moviepy==1.0.3 [cite: 1]
+[cite_start]imageio==2.35.1 [cite: 1]
+[cite_start]imageio-ffmpeg==0.4.9 [cite: 1]
+[cite_start]Pillow==10.4.0 [cite: 1]
+numpy==2.1.1
+opencv-python==4.12.0.88
+pandas==2.3.2
 
+# --- AI and language tools ---
+ollama==0.3.3
+pytesseract==0.3.13
+langdetect==1.0.9
+TTS==0.22.0
+
+# --- Download and web tools ---
+requests==2.32.3
+yt-dlp==2024.9.27
 
 # --- YouTube API ---
-google-api-python-client==2.149.0
-google-auth==2.35.0
-google-auth-oauthlib==1.2.1
-google-auth-httplib2==0.2.0
+[cite_start]google-api-python-client==2.149.0 [cite: 1]
+[cite_start]google-auth==2.35.0 [cite: 1]
+[cite_start]google-auth-oauthlib==1.2.1 [cite: 1]
+[cite_start]google-auth-httplib2==0.2.0 [cite: 1]
 
+# --- Image processing extras ---
+imagehash==4.3.2
 

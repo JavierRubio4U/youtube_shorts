@@ -4,13 +4,14 @@ import unicodedata
 import random  # Para música aleatoria
 from pathlib import Path
 import json, os, logging, re
-from moviepy.editor import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip, concatenate_audioclips
-from moviepy.audio.AudioClip import CompositeAudioClip, AudioClip  # Para mezcla y silencio
-from moviepy.audio.fx.all import volumex, audio_fadein, audio_fadeout  # Para fades y volumen
 from PIL import Image
 import numpy as np
 from overlay import make_overlay_image
 from ai_narration import generate_narration
+
+from moviepy import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip, concatenate_audioclips
+from moviepy.audio.AudioClip import CompositeAudioClip, AudioClip  # Para mezcla y silencio
+import moviepy.audio.fx as afx
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')  # Cambia a DEBUG si necesitas más detalles
 
@@ -37,19 +38,19 @@ def slugify(text: str, maxlen: int = 60) -> str:
 def clip_from_img(path: Path, dur: float) -> ImageClip:
     """Crea un clip de video a partir de una imagen con duración dada."""
     try:
-        img_clip = ImageClip(str(path)).set_duration(dur)
+        img_clip = ImageClip(str(path)).with_duration(dur)
         img_w, img_h = img_clip.size
         target_ratio = W / H
         current_ratio = img_w / img_h
         if current_ratio > target_ratio:
             new_h = int(img_w / target_ratio)
             y_offset = (new_h - img_h) // 2
-            img_clip = img_clip.margin(top=y_offset, bottom=y_offset, color=(0, 0, 0))
+            img_clip = img_clip.margined(top=y_offset, bottom=y_offset, color=(0, 0, 0))
         else:
             new_w = int(img_h * target_ratio)
             x_offset = (new_w - img_w) // 2
-            img_clip = img_clip.margin(left=x_offset, right=x_offset, color=(0, 0, 0))
-        return img_clip.resize((W, H))
+            img_clip = img_clip.margined(left=x_offset, right=x_offset, color=(0, 0, 0))
+        return img_clip.resized((W, H))
     except Exception as e:
         logging.error(f"Error al cargar imagen {path}: {e}")
         return None
@@ -61,25 +62,25 @@ def resize_to_9_16(clip):
     
     # Escalar al máximo sin distorsión y crop
     if current_ratio > target_ratio:  # Landscape: escalar por alto, crop lateral
-        clip = clip.resize(height=H)
+        clip = clip.resized(height=H)
         left_crop = (clip.w - W) // 2
         logging.debug(f"Crop lateral: offset {left_crop}, nuevo ancho {W}")
-        clip = clip.crop(x1=left_crop, x2=clip.w - left_crop)
+        clip = clip.cropped(x1=left_crop, x2=clip.w - left_crop)
     else:  # Portrait: escalar por ancho, crop vertical
-        clip = clip.resize(width=W)
+        clip = clip.resized(width=W)
         top_crop = (clip.h - H) // 2
         logging.debug(f"Crop vertical: offset {top_crop}, nuevo alto {H}")
-        clip = clip.crop(y1=top_crop, y2=clip.h - top_crop)
+        clip = clip.cropped(y1=top_crop, y2=clip.h - top_crop)
     
     logging.debug(f"Tamaño final: {clip.w}x{clip.h}")
     return clip
 
 def main():
     if not SEL_FILE.exists():
-        logging.warning("next_release.json no encontrado. Usando valores predeterminados para prueba.")
-        sel = {"tmdb_id": "936108", "titulo": "Pitufos", "fecha_estreno": "1984-09-12"}
-    else:
-        sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
+        logging.warning("next_release.json no encontrado. El proceso se detiene.")
+        return
+
+    sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
 
     video_clips = []
     tmdb_id = sel.get("tmdb_id", "unknown")
@@ -92,9 +93,6 @@ def main():
     temp_root.mkdir(parents=True, exist_ok=True)
     tmpdir = temp_root / f"tmp_{tmdb_id}"
     tmpdir.mkdir(parents=True, exist_ok=True)
-
-    # Generar narración y audio
-    narracion, voice_path = generate_narration(sel, tmdb_id, slug, tmpdir=tmpdir)
 
     # Cargar assets desde manifiesto
     if MANIFEST.exists():
@@ -110,9 +108,8 @@ def main():
 
     if not video_clips and poster_path and poster_path.exists():
         logging.warning("No hay clips de video. Usando póster como fallback.")
-        video_clips = [poster_path] * MAX_BACKDROPS  # Nueva modificación: Repetir póster como fallback para clips si no hay video
+        video_clips = [poster_path] * MAX_BACKDROPS
 
-    # Nueva modificación: Quitar filtrado de similitud; asumir video_clips ya seleccionados en extract_video_clips
     bd_paths = video_clips[:MAX_BACKDROPS]
 
     # Crear clips
@@ -121,13 +118,13 @@ def main():
         if path.suffix.lower() in ['.jpg', '.jpeg', '.png']:
             img_clip = clip_from_img(path, CLIP_DURATION)
             if img_clip:
-                img_clip = resize_to_9_16(img_clip)  # Crop al img
+                img_clip = resize_to_9_16(img_clip)
                 clips.append(img_clip)
         else:
             try:
-                video_clip = VideoFileClip(str(path)).set_duration(CLIP_DURATION)
+                video_clip = VideoFileClip(str(path)).with_duration(CLIP_DURATION)
                 logging.debug(f"Cargando clip {path.name}: tamaño original {video_clip.w}x{video_clip.h}, ratio {video_clip.w / video_clip.h}")
-                video_clip = resize_to_9_16(video_clip)  # Crop al video
+                video_clip = resize_to_9_16(video_clip)
                 clips.append(video_clip)
             except Exception as e:
                 logging.error(f"Error al cargar clip de video {path}: {e}")
@@ -135,13 +132,13 @@ def main():
     # Intro con póster (aplicar crop)
     if poster_path and poster_path.is_file():
         logging.debug(f"Póster válido encontrado: {poster_path}")
-        intro_clip = ImageClip(str(poster_path)).set_duration(INTRO_DURATION)
+        intro_clip = ImageClip(str(poster_path)).with_duration(INTRO_DURATION)
         if intro_clip:
-            intro_clip = resize_to_9_16(intro_clip)  # Aplicar crop al póster
+            intro_clip = resize_to_9_16(intro_clip)
             clips.insert(0, intro_clip)
         else:
             logging.error(f"Fallo al crear intro_clip desde {poster_path}")
-            intro_clip = None  # Seguirá a fallback
+            intro_clip = None
     else:
         logging.warning(f"Póster no válido o no encontrado: {poster_path}. Usando fallback.")
         intro_clip = None
@@ -152,21 +149,21 @@ def main():
         if first_bd.suffix.lower() in ['.jpg', '.jpeg', '.png']:
             intro_clip = clip_from_img(first_bd, INTRO_DURATION)
         else:
-            intro_clip = VideoFileClip(str(first_bd)).get_frame(0)  # Extrae primer frame de video
-            intro_clip = ImageClip(intro_clip).set_duration(INTRO_DURATION)
+            intro_clip = VideoFileClip(str(first_bd)).get_frame(0)
+            intro_clip = ImageClip(intro_clip).with_duration(INTRO_DURATION)
         if intro_clip:
             intro_clip = resize_to_9_16(intro_clip)
             clips.insert(0, intro_clip)
         else:
-            # Último fallback: negro
-            intro_clip = ImageClip(np.zeros((H, W, 3), dtype=np.uint8), duration=INTRO_DURATION)
+            intro_clip = ImageClip(np.zeros((H, W, 3), dtype=np.uint8)).with_duration(INTRO_DURATION)
             clips.insert(0, intro_clip)
 
-    # Concatenar todos los clips
+    # Concatenar todos los clips para obtener la duración real
     final_clip = concatenate_videoclips(clips, method="compose")
-
-    # Ajustar tamaño (ya con crop)
     final_clip = resize_to_9_16(final_clip)
+
+    # Generar narración y audio, pasando la duración real del video
+    narracion, voice_path = generate_narration(sel, tmdb_id, slug, tmpdir=tmpdir, video_duration=final_clip.duration)
 
     # Añadir narración y música como audio
     if voice_path and os.path.exists(voice_path):
@@ -176,12 +173,12 @@ def main():
             
             # Recortar narración si ya es más larga (antes de mezcla)
             if audio_clip.duration > final_clip.duration:
-                audio_clip = audio_clip.subclip(0, final_clip.duration)
+                audio_clip = audio_clip.subclipped(0, final_clip.duration) 
                 logging.debug(f"Narración recortada a {final_clip.duration}s antes de mezcla.")
             
             # Añadir música de fondo aleatoria
             audio_dir = ROOT / "assets" / "music"
-            final_audio = audio_clip  # Por defecto solo narración
+            final_audio = audio_clip
             if audio_dir.exists() and any(audio_dir.iterdir()):
                 music_files = [f for f in audio_dir.iterdir() if f.suffix.lower() in ['.mp3', '.wav']]
                 if music_files:
@@ -190,23 +187,21 @@ def main():
                     try:
                         music_clip = AudioFileClip(str(music_path))
                         logging.debug(f"Música cargada: duración original {music_clip.duration}s")
-                        # Ajustar música a duración del video (repetir si corta, subclip si larga)
+                        
                         if music_clip.duration < final_clip.duration:
                             repeats = int(final_clip.duration / music_clip.duration) + 1
-                            music_clip = concatenate_audioclips([music_clip] * repeats).subclip(0, final_clip.duration)
+                            music_clip = concatenate_audioclips([music_clip] * repeats).subclipped(0, final_clip.duration)  # Fixed: .subclip
                         else:
-                            music_clip = music_clip.subclip(0, final_clip.duration)
+                            music_clip = music_clip.subclipped(0, final_clip.duration)  
                         logging.debug(f"Música ajustada a {final_clip.duration}s")
-                        # Fade y volumen bajo
-                        music_clip = music_clip.audio_fadein(1.0).audio_fadeout(1.0).volumex(0.15)
-                        logging.debug("Fades y volumen aplicados a música.")
-                        # Mezcla narración + música
+                        
+                        # Fixed: Use .fx with afx instead of .with_effects
+                        music_clip = music_clip.with_effects([afx.AudioFadeIn(1.0), afx.AudioFadeOut(1.0), afx.MultiplyVolume(0.15)])
                         final_audio = CompositeAudioClip([audio_clip, music_clip])
                         logging.debug(f"Mezcla de audio completada: duración {final_audio.duration}s")
                         
-                        # Recorte final si la mezcla > duración video (bug fix)
                         if final_audio.duration > final_clip.duration:
-                            final_audio = final_audio.subclip(0, final_clip.duration)
+                            final_audio = final_audio.subclipped(0, final_clip.duration)  
                             logging.info(f"Audio final recortado a {final_clip.duration}s para fit exacto.")
                         
                         logging.info(f"Música de fondo aleatoria añadida desde {music_path.name}.")
@@ -217,27 +212,28 @@ def main():
             else:
                 logging.info("Carpeta de music no encontrada o vacía. Solo narración.")
             
-            # Extender con silencio si < duración video
             if final_audio.duration < final_clip.duration:
                 silence_duration = final_clip.duration - final_audio.duration
                 silence_clip = AudioClip(lambda t: 0, duration=silence_duration, fps=final_audio.fps)
                 final_audio = concatenate_audioclips([final_audio, silence_clip])
                 logging.debug(f"Audio extendido con silencio a {final_clip.duration}s")
             
-            final_clip = final_clip.set_audio(final_audio)
+            final_clip = final_clip.with_audio(final_audio)
             logging.debug(f"Audio final aplicado al video: duración {final_clip.duration}s")
         except Exception as e:
             logging.error(f"Error al cargar audio desde {voice_path}: {e}")
 
     out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
-    # Nueva modificación: Optimizar write_videofile con settings de alta calidad (60fps, high bitrate, CRF bajo)
     final_clip.write_videofile(
-        str(out_file), fps=60,  # Sube a 60fps para smooth
-        codec="libx264", preset="veryslow",  # Máxima calidad, slow encode
-        bitrate="20000k",  # Alto bitrate para details
-        ffmpeg_params=["-crf", "18"]  # CRF bajo=alta calidad (0=lossless, 18=excelente)
+        str(out_file), fps=60,
+        codec="libx264", preset="veryslow",
+        bitrate="20000k",
+        ffmpeg_params=["-crf", "18"]
     )
     logging.info(f"🎬 Short generado en: {out_file}")
+
+    cleanup_temp_files(tmpdir)
+
     return str(out_file)
 
 def cleanup_temp_files(tmpdir):

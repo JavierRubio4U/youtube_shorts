@@ -31,7 +31,7 @@ def _is_latin_text(text: str) -> bool:
         return False
     return all('a' <= c.lower() <= 'z' or c.isdigit() or c in 'áéíóúüñÁÉÍÓÚÜÑ\s\:\-\!\?\.,\'"' for c in text)
 
-def _translate_with_ai(text: str, title: str, model='mistral') -> str | None:
+def _translate_with_ai(text: str, title: str, model='jobautomation/OpenEuroLLM-Spanish') -> str | None:
     """Traduce un texto usando un modelo local de Ollama."""
     try:
         # Saltar traducción si ya es español o contiene números (mantener como está)

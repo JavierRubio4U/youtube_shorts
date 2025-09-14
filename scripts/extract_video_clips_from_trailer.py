@@ -8,7 +8,6 @@ import yt_dlp
 import unicodedata
 import re
 import time
-# Nueva modificación: Importar subprocess para FFmpeg
 import subprocess
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -19,10 +18,10 @@ CLIPS_DIR = ROOT / "assets" / "video_clips"  # Carpeta final para clips validado
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
 
 SEL_FILE = STATE / "next_release.json"
-CLIP_INTERVAL = 5  # Nueva modificación: Reducir intervalo a 5s para más clips y mejor selección
-CLIP_DURATION = 6  # Duración de cada clip ajustada a 6 segundos
-MAX_CLIPS = 4  # Máximo de 4 clips para 24 segundos
-SKIP_INITIAL_CLIPS = 2  # Nueva modificación: Número de clips iniciales a quitar (para evitar intros/anuncios)
+CLIP_INTERVAL = 5
+CLIP_DURATION = 6
+MAX_CLIPS = 4
+SKIP_INITIAL_CLIPS = 2
 
 def slugify(text: str, maxlen: int = 60) -> str:
     """Convierte texto en un slug seguro para nombres de archivo."""
@@ -33,12 +32,11 @@ def slugify(text: str, maxlen: int = 60) -> str:
     return (s or "title")[:maxlen]
 
 def download_trailer(url, output_dir):
-    # Nueva modificación: Forzar descarga en máxima calidad (4K si disponible, best video+audio)
     ydl_opts = {
         'outtmpl': os.path.join(output_dir, 'trailer.%(ext)s'),
-        'format': 'bestvideo[height>=2160]+bestaudio/bestvideo+bestaudio',  # Prioriza 4K + best audio
-        'merge_output_format': 'mp4',  # Merge sin pérdida
-        'no_playlist': True,  # Solo video único
+        'format': 'bestvideo[height>=2160]+bestaudio/bestvideo+bestaudio',
+        'merge_output_format': 'mp4',
+        'no_playlist': True,
         'quiet': True
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -46,57 +44,74 @@ def download_trailer(url, output_dir):
     return next(f for f in os.listdir(output_dir) if f.startswith('trailer.'))
 
 def extract_clips(video_path, interval=CLIP_INTERVAL, clip_dur=CLIP_DURATION, tmpdir=None):
-    # Nueva modificación: Usar FFmpeg para extraer clips sin re-encode (copy streams para mantener calidad)
-    clips = []
     paths = []
-    # Obtener duración total con ffprobe
     duration_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(video_path)]
     duration = float(subprocess.check_output(duration_cmd).decode().strip())
     
-    # Nueva modificación: Empezar desde un offset para generar más clips y luego quitar los primeros SKIP_INITIAL_CLIPS
-    start_time = 0  # Mantener start en 0, pero quitar después
+    start_time = 0
     for t in range(int(start_time), int(duration - clip_dur), interval):
         out_clip = tmpdir / f"clip_{t}.mp4" if tmpdir else Path(os.path.dirname(video_path)) / f"clip_{t}.mp4"
         cmd = [
             'ffmpeg', '-y', '-ss', str(t), '-i', str(video_path),
-            '-t', str(clip_dur), '-c:v', 'copy', '-c:a', 'copy',  # Sin re-encode!
+            '-t', str(clip_dur), '-c:v', 'copy', '-c:a', 'copy',
             str(out_clip)
         ]
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, capture_output=True)
         if out_clip.exists() and out_clip.stat().st_size > 0:
             paths.append(out_clip)
-            # No cargar con MoviePy aquí, ya que quitamos similitud; solo paths
     
-    # Nueva modificación: Quitar los primeros SKIP_INITIAL_CLIPS
     if len(paths) > SKIP_INITIAL_CLIPS:
         paths = paths[SKIP_INITIAL_CLIPS:]
         logging.info(f"Quitados los primeros {SKIP_INITIAL_CLIPS} clips para evitar intros/anuncios.")
     
     logging.info(f"{len(paths)} clips extraídos sin pérdida.")
-    return paths  # Nueva modificación: Retornar solo paths, sin clips MoviePy
+    return paths
+
+def is_static_or_solid_color(video_path):
+    """
+    Comprueba si el clip es mayormente estático o tiene un color sólido.
+    Retorna True si es un logo o texto estático.
+    """
+    try:
+        cmd_motion = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pkt_pts_time,side_data_list", "-of", "csv=p=0", "-i", str(video_path)]
+        output = subprocess.check_output(cmd_motion).decode().strip()
+        motion_scores = [float(line.split(' ')[1]) for line in output.split('\n') if 'lavfi.scene_score' in line]
+        if motion_scores and sum(motion_scores) / len(motion_scores) < 0.1:
+            logging.info(f"Clip {video_path.name} descartado por ser estático (score: {sum(motion_scores) / len(motion_scores):.2f}).")
+            return True
+        return False
+    except Exception as e:
+        logging.warning(f"Error al analizar el movimiento del clip: {e}")
+        return False
 
 def select_best_clips(clip_paths, max_clips=MAX_CLIPS):
-    # Nueva modificación: Selección simple de clips espaciados uniformemente (sin similitud)
-    total = len(clip_paths)
-    if total == 0:
-        return []
-    step = max(1, total // max_clips)  # Espaciar para cubrir el trailer
-    selected = [clip_paths[i * step] for i in range(max_clips) if i * step < total]
-    logging.info(f"{len(selected)} clips seleccionados espaciados.")
-    return selected
+    valid_clips = []
+    
+    for path in clip_paths:
+        if is_static_or_solid_color(path):
+            continue
+        valid_clips.append(path)
+
+    if len(valid_clips) >= max_clips:
+        step = len(valid_clips) // max_clips
+        selected = [valid_clips[i * step] for i in range(max_clips)]
+        logging.info(f"{len(selected)} clips seleccionados de los {len(valid_clips)} válidos.")
+        return selected
+    
+    logging.warning(f"No hay suficientes clips válidos ({len(valid_clips)}). Devolviendo todos los válidos.")
+    return valid_clips
 
 def save_clips(clip_paths, tmdb_id, slug):
     saved_paths = []
     for i, path in enumerate(clip_paths):
         filename = f"{tmdb_id}_{slug}_bd_v{i+1:02d}.mp4"
         out_path = CLIPS_DIR / filename
-        # Nueva modificación: Copiar clip con FFmpeg sin re-encode (mantiene calidad, quita audio)
         cmd = [
             'ffmpeg', '-y', '-i', str(path),
-            '-c:v', 'copy', '-an',  # Copia video, quita audio
+            '-c:v', 'copy', '-an',
             str(out_path)
         ]
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, capture_output=True)
         if out_path.exists():
             saved_paths.append(str(out_path.relative_to(ROOT)))
         else:
@@ -104,8 +119,7 @@ def save_clips(clip_paths, tmdb_id, slug):
     return saved_paths
 
 def cleanup_temp_files(tmpdir):
-    """Elimina archivos temporales generados durante el proceso con retraso para liberar bloqueos."""
-    time.sleep(2)  # Retraso para liberar bloqueos
+    time.sleep(2)
     for file in os.listdir(tmpdir):
         file_path = os.path.join(tmpdir, file)
         if os.path.isfile(file_path):
@@ -127,12 +141,11 @@ def main():
 
     if not trailer_url:
         logging.warning("No hay tráiler disponible. Omitiendo extracción de clips.")
-        return  # Sale del script sin fallar
+        return
 
     temp_root = ROOT / "temp"
     temp_root.mkdir(parents=True, exist_ok=True)
     tmpdir = temp_root / f"tmp_{tmdb_id}"
-    # Limpieza inicial de la carpeta temporal si existe
     if tmpdir.exists():
         shutil.rmtree(tmpdir, ignore_errors=True)
         logging.info(f"Carpeta temporal {tmpdir} eliminada antes de la ejecución.")
@@ -143,7 +156,6 @@ def main():
         try:
             trailer_file = download_trailer(trailer_url, tmpdir)
             trailer_path = os.path.join(tmpdir, trailer_file)
-            # No necesitamos cerrar trailer_path explícitamente aquí, ya que download_trailer lo maneja
         except Exception as e:
             logging.error(f"Fallo al descargar el tráiler: {e}")
             return
@@ -156,7 +168,6 @@ def main():
             logging.error(f"Fallo al extraer clips: {e}")
             return
 
-        # Nueva modificación: Quitar filtrado de similitud, usar selección simple espaciada
         logging.info("Seleccionando los mejores clips...")
         best_paths = select_best_clips(clip_paths)
 
@@ -165,7 +176,6 @@ def main():
             saved_paths = save_clips(best_paths, tmdb_id, slug)
             logging.info(f"Clips extraídos y guardados: {saved_paths}")
 
-            # Actualizar manifiesto con las rutas de los clips
             manifest_path = STATE / "assets_manifest.json"
             if manifest_path.exists():
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

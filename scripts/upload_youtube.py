@@ -11,7 +11,7 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Nuevos imports para fallback de frames y resize
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 from PIL import Image, ImageStat
 import logging  # Para logs extras
 

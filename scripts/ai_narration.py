@@ -3,17 +3,19 @@ import json
 import re
 import subprocess
 from pathlib import Path
-import logging
-import logging
 import ollama
-
-from moviepy.editor import AudioFileClip
-
-import ollama
+import slugify
+import moviepy.audio.fx as afx
+from moviepy import AudioFileClip, concatenate_audioclips
+from moviepy.audio.AudioClip import AudioClip
 from langdetect import detect, DetectorFactory
-
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")
+import logging
+import moviepy.video.fx as vfx
+from elevenlabs.client import ElevenLabs
+from elevenlabs import save
+import requests
 
 # Para resultados consistentes
 DetectorFactory.seed = 0
@@ -22,108 +24,249 @@ DetectorFactory.seed = 0
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 STATE.mkdir(parents=True, exist_ok=True)
+CONFIG_DIR = ROOT / "config" # Nueva ruta para el directorio de configuración
 
 # --- Logging ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# --- Funciones de texto ---
-def _normalize_text(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip())
 
+# --- Funciones de texto ---
 def _sentences(s: str):
     return [seg.strip() for seg in re.split(r"(?<=[\.\!\?…])\s+", s) if seg.strip()]
 
-def _trim_to_words(text: str, max_words: int) -> str:
-    words = text.split()
-    if len(words) <= max_words:
-        return text
-    t = " ".join(words[:max_words])
-    return t.rstrip(",;:") + "…"
+def count_words(text: str) -> int:
+    """Conteador de palabras más preciso."""
+    return len(re.findall(r'\b\w+\b', text))
 
 # --- Funciones de IA ---
-def _generate_narration_with_ai(sel: dict, model='mistral', max_words=60, min_words=50) -> str | None:
+def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Spanish', max_words=60, min_words=45, max_retries=3) -> str | None:
     """
-    Genera una sinopsis con Ollama, con un intento de auto-corrección si excede la longitud.
+    Genera una sinopsis con Ollama, con reintentos si no está en el rango.
     """
-    initial_prompt = f"""
-    Genera una sinopsis detallada y atractiva de entre {min_words} y {max_words} palabras en español de España (castellano).
-    Es crucial que la sinopsis finalice con una oración completa y natural.
-    NO excedas las {max_words} palabras.
-    El título '{sel.get("titulo")}' es un nombre propio y NO debe traducirse.
-    La sinopsis debe ser un párrafo cohesivo y no debe listar metadata como reparto o géneros.
-    Usa la siguiente información para inspirarte:
+    attempt = 0
+    while attempt < max_retries:
+        attempt += 1
+        logging.info(f"Generando sinopsis (Intento {attempt})...")
 
-    Título: {sel.get("titulo")}
-    Sinopsis original: {sel.get("sinopsis")}
-    Géneros: {', '.join(sel.get("generos"))}
-    """
-    
-    try:
-        # --- Primer Intento ---
-        logging.info("Generando sinopsis (Intento 1)...")
-        response = ollama.chat(model=model, messages=[{'role': 'user', 'content': initial_prompt}])
-        generated_text = response['message']['content'].strip()
-        word_count = len(generated_text.split())
+        # Prompt inicial mejorado: Más explícito para rango y detalle
+        initial_prompt = f"""
+        Genera una sinopsis detallada, atractiva y descriptiva de al menos {min_words} y no más de {max_words} palabras en español de España (castellano).
+        Debe ser un párrafo cohesivo, emocionante, enfocado en el conflicto principal, personajes y atmósfera, sin spoilers.
+        Es crucial que finalice con una oración completa y natural. NO excedas las {max_words} palabras y asegúrate de tener al menos {min_words}.
+        El título '{sel.get("titulo")}' es un nombre propio y NO debe traducirse.
+        No listes metadata como reparto o géneros.
+        Ejemplo: 'En esta épica aventura, un joven héroe descubre un antiguo secreto en un mundo lleno de peligros, donde debe unir fuerzas con aliados inesperados para enfrentar a un villano poderoso que amenaza con destruir todo lo que ama, en una batalla que pondrá a prueba su coraje y determinación.'
+        Usa la siguiente información para inspirarte:
 
-        # Si el primer intento es demasiado largo, lo corregimos
-        if word_count > max_words:
-            logging.warning(
-                f"Intento 1 generó {word_count} palabras (máximo {max_words}). Pidiendo a la IA que lo resuma."
-            )
-            
-            # --- Segundo Intento (Auto-Corrección) ---
-            refinement_prompt = f"""
-            El siguiente texto es demasiado largo. Resume este texto para que tenga menos de {max_words} palabras.
-            El resultado DEBE ser una frase completa y sonar natural. No lo cortes.
-            Simplemente devuelve el texto corregido, sin añadir introducciones como 'Aquí tienes el resumen:'.
-
-            Texto a corregir:
-            "{generated_text}"
-            """
-            response = ollama.chat(model=model, messages=[{'role': 'user', 'content': refinement_prompt}])
+        Título: {sel.get("titulo")}
+        Sinopsis original: {sel.get("sinopsis")}
+        Géneros: {', '.join(sel.get("generos"))}
+        """
+        
+        try:
+            response = ollama.chat(model=model, messages=[{'role': 'user', 'content': initial_prompt}])
             generated_text = response['message']['content'].strip()
-            word_count = len(generated_text.split())
+            word_count = count_words(generated_text)
 
-        # Verificación final
-        if word_count > max_words or word_count < min_words:
-            logging.warning(f"La narración final tiene {word_count} palabras, fuera del rango deseado ({min_words}-{max_words}).")
-        else:
-            logging.info(f"Narración generada con éxito ({word_count} palabras).")
+            # Validación de idioma
+            if detect(generated_text) != 'es':
+                logging.warning(f"La sinopsis fue generada en '{detect(generated_text)}', no en español. Intentando traducir.")
+                
+                translation_prompt = f"""
+                Traduce el siguiente texto al español de España (castellano) de forma natural y fluida.
+                Simplemente devuelve la traducción, sin añadir introducciones.
+                
+                Texto a traducir:
+                "{generated_text}"
+                """
+                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': translation_prompt}])
+                generated_text = response['message']['content'].strip()
+                word_count = count_words(generated_text)
             
-        return generated_text
+            # Si demasiado corta, expandir
+            if word_count < min_words:
+                logging.warning(f"La sinopsis tiene {word_count} palabras (mínimo {min_words}). Expandiendo.")
+                expansion_prompt = f"""
+                El siguiente texto es demasiado corto. Expándelo agregando detalles descriptivos sobre el conflicto, personajes o atmósfera para alcanzar al menos {min_words} palabras, pero menos de {max_words}.
+                El resultado DEBE ser un párrafo cohesivo, finalizar con una oración completa y sonar natural. No lo cortes.
+                Simplemente devuelve el texto corregido.
 
-    except Exception as e:
-        logging.error(f"Error al generar narración con Ollama: {e}")
-        return None
+                Texto a corregir:
+                "{generated_text}"
+                """
+                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': expansion_prompt}])
+                generated_text = response['message']['content'].strip()
+                word_count = count_words(generated_text)
+
+            # Si demasiado larga, resumir
+            if word_count > (max_words + 5):
+                logging.warning(f"La sinopsis tiene {word_count} palabras (máximo {max_words}). Resumiendo.")
+                refinement_prompt = f"""
+                El siguiente texto es demasiado largo. Resúmelo manteniendo detalles clave para que tenga al menos {min_words} y menos de {max_words} palabras.
+                El resultado DEBE ser un párrafo cohesivo, finalizar con una oración completa y sonar natural. No lo cortes.
+                Simplemente devuelve el texto corregido.
+
+                Texto a corregir:
+                "{generated_text}"
+                """
+                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': refinement_prompt}])
+                generated_text = response['message']['content'].strip()
+                word_count = count_words(generated_text)
+
+            # Verificación final del intento
+            if min_words <= word_count <= max_words:
+                logging.info(f"Narración generada con éxito ({word_count} palabras).")
+                return generated_text
+            else:
+                logging.warning(f"Aún fuera del rango ({word_count} palabras). Reintentando...")
+
+        except Exception as e:
+            logging.error(f"Error al generar narración con Ollama: {e}")
+            return None
     
-def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir=None) -> tuple[str | None, Path | None]:
+    # Fallback después de reintentos: Usa la última generada, o None si falla
+    logging.warning(f"No se logró el rango después de {max_retries} intentos. Usando la última versión ({word_count} palabras).")
+    return generated_text if 'generated_text' in locals() else None
+
+def _get_tmp_voice_path(tmdb_id: str, slug: str, tmpdir: Path) -> Path:
+    """Retorna la ruta temporal para el archivo de voz."""
+    return tmpdir / f"{tmdb_id}_{slug}_narracion.wav"
+
+def _get_elevenlabs_api_key() -> str | None:
+    """Lee la clave API desde el archivo de texto en el directorio 'config'."""
+    api_key_path = CONFIG_DIR / "elevenlabs_api_key.txt"
+    try:
+        if not api_key_path.exists():
+            logging.error(f"Archivo de clave API no encontrado: {api_key_path}")
+            return None
+        with open(api_key_path, 'r', encoding='utf-8') as f:
+            api_key = f.read().strip()
+            if not api_key:
+                logging.error("La clave API está vacía en el archivo.")
+                return None
+            return api_key
+    except Exception as e:
+        logging.error(f"Error al leer la clave API desde {api_key_path}: {e}")
+        return None
+
+def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_duration: float | None = None) -> tuple[str | None, Path | None]:
     """
     Genera la narración con IA (usando auto-corrección) y sintetiza el audio.
     """
     logging.info("🔎 Generando sinopsis con IA local...")
-    # La función de generación ahora se encarga de la longitud.
     narracion = _generate_narration_with_ai(sel)
     
-    # Ya no necesitamos el log de "recortada" porque no se recorta.
-    logging.info(f"Narración generada: {narracion[:100]}...") if narracion else logging.warning("No se generó narración.")
-
-    voice_path = None
     if narracion:
-        # ¡¡¡ LA LÍNEA DE _trim_to_words HA SIDO ELIMINADA !!!
+        logging.info(f"Narración generada completa: {narracion}")
+        voice_path = _synthesize_elevenlabs_with_pauses(narracion, tmpdir, tmdb_id, slug, video_duration=video_duration)
+    else:
+        logging.warning("No se generó narración. Creando un archivo de audio vacío.")
+        voice_path = tmpdir / f"silent_{tmdb_id}_{slug}.wav"
+        empty_audio = AudioClip(lambda t: 0, duration=1, fps=44100)
+        empty_audio.write_audiofile(str(voice_path), logger=None)
+        narracion = None
+    
+    if voice_path and voice_path.exists():
+        audio_clip = AudioFileClip(str(voice_path))
         
-        voice_path = (tmpdir / f"{tmdb_id}_{slug}_narracion.wav") if tmpdir else (STATE / f"{tmdb_id}_{slug}_narracion.wav")
-        if not voice_path.exists():
-            voice_path = _synthesize_xtts_with_pauses(narracion, voice_path, tmpdir) or _synthesize_tts_coqui(narracion, voice_path)
+        if video_duration is not None and audio_clip.duration < video_duration:
+            silence_duration = video_duration - audio_clip.duration
+            silence_clip = AudioClip(lambda t: 0, duration=silence_duration)
+            final_audio = concatenate_audioclips([audio_clip, silence_clip])
+            final_audio_path = tmpdir / f"final_{tmdb_id}_{slug}.wav"
+            final_audio.write_audiofile(str(final_audio_path), logger=None)
+            logging.info(f"Audio final con silencio ajustado a {video_duration:.2f} segundos.")
+            voice_path.unlink(missing_ok=True)
+            return narracion, final_audio_path
         
-        if voice_path:
-            # Este log sigue siendo útil para saber la duración final del audio
-            audio_duration = AudioFileClip(str(voice_path)).duration
-            logging.info(f"Audio de voz generado con duración de {audio_duration:.2f} segundos.")
+        logging.info(f"Audio de voz generado con duración de {audio_clip.duration:.2f} segundos.")
+        return narracion, voice_path
+    
+    return None, None
+
+def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, slug: str, video_duration: float | None = None) -> Path | None:
+    try:
+        # Reemplaza esta clave con la tuya personal
+        VOICE_ID = "yiWEefwu5z3DQCM79clN" # ID para la voz de Rachel
+        
+        # Obtener la clave API desde el archivo
+        API_KEY = _get_elevenlabs_api_key()
+        if not API_KEY:
+            logging.error("No se pudo obtener la clave de ElevenLabs. Se detiene la síntesis.")
+            return None
+
+        client = ElevenLabs(api_key=API_KEY)
+        
+        # 1. Verificar la suscripción con el método correcto
+        user_subscription_data = client.user.subscription.get()
+        
+        character_limit = user_subscription_data.character_limit
+        character_count = user_subscription_data.character_count
+        
+        # 2. Manejo de cuota
+        MAX_CHARACTERS = 0.9 * character_limit
+        if character_count > MAX_CHARACTERS:
+            logging.warning(f"¡Cuidado! Te estás quedando sin cuota de ElevenLabs. Usados: {character_count}/{character_limit}")
+
+        # Generar audio con ElevenLabs
+        audio_stream = client.text_to_speech.convert(
+            voice_id=VOICE_ID,
+            text=text,
+            model_id="eleven_multilingual_v2",
+        )
+        
+        # Guardar el stream de bytes como archivo temporal MP3
+        temp_voice_path = tmpdir / f"_temp_voice_{tmdb_id}_{slug}.mp3"
+        with open(temp_voice_path, 'wb') as f:
+            for chunk in audio_stream:
+                f.write(chunk)
+        
+        if not temp_voice_path.exists(): 
+            raise FileNotFoundError
+
+        # Convertir a WAV para compatibilidad con MoviePy
+        temp_wav_path = tmpdir / f"_temp_voice_{tmdb_id}_{slug}.wav"
+        subprocess.run(["ffmpeg", "-y", "-i", str(temp_voice_path), str(temp_wav_path)], check=True, capture_output=True)
+        temp_voice_path.unlink(missing_ok=True)
+
+        # Cargar la voz temporal en un AudioFileClip
+        voice_clip = AudioFileClip(str(temp_wav_path))
+        
+        # Añadir el silencio inicial de 1 segundo
+        initial_silence_clip = AudioClip(lambda t: 0, duration=1.0)
+        final_adjusted_clip = concatenate_audioclips([initial_silence_clip, voice_clip])
+        
+        # Ajustar a la duración total deseada (26 segundos) si es necesario
+        target_total_duration = 28.0
+        if final_adjusted_clip.duration < target_total_duration:
+            extra_silence = target_total_duration - final_adjusted_clip.duration
+            silence_at_end = AudioClip(lambda t: 0, duration=extra_silence)
+            final_adjusted_clip = concatenate_audioclips([final_adjusted_clip, silence_at_end])
+
+        # Guardar la voz ajustada como final
+        final_wav_path_final = _get_tmp_voice_path(tmdb_id, slug, tmpdir)
+        final_adjusted_clip.write_audiofile(str(final_wav_path_final), logger=None)
+        
+        # Limpieza
+        temp_wav_path.unlink(missing_ok=True)
+        
+        logging.info(f"Voz generada con duración ajustada: {final_adjusted_clip.duration:.2f}s (incluyendo 1s inicial).")
+        return final_wav_path_final
+        
+    except requests.exceptions.HTTPError as http_err:
+        if http_err.response.status_code == 401:
+            logging.error("Error de autenticación. Clave de API inválida.")
+        elif http_err.response.status_code == 400 and "quota_exceeded" in http_err.response.text:
+            logging.error("Error 400: Cuota excedida. No se puede completar la solicitud.")
+        elif http_err.response.status_code == 403:
+            logging.error("Error 403: Acceso denegado. Es posible que el plan actual no soporte esta función.")
         else:
-            logging.warning("No se pudo generar el audio de voz. El vídeo no tendrá narración.")
-
-    return narracion, voice_path
-
+            logging.error(f"Error HTTP desconocido al verificar la suscripción: {http_err}")
+        return None
+    except Exception as e:
+        logging.error(f"Error en la síntesis con ElevenLabs: {e}")
+        return None
+        
 # --- Funciones de audio ---
 def _clean_for_tts(text: str) -> str:
     if not text: return ""
@@ -143,63 +286,7 @@ def _concat_wav_ffmpeg(inputs: list[Path], out_wav: Path) -> bool:
     res = subprocess.run(cmd, check=True, capture_output=True)
     return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 0
 
-def _synthesize_tts_coqui(text: str, out_wav: Path) -> Path | None:
-    try:
-        from TTS.api import TTS
-    except ImportError:
-        logging.error("Coqui TTS no está instalado. No se generará audio de voz.")
-        return None
-    try:
-        cleaned_text = _clean_for_tts(text)
-        if not cleaned_text:
-            return None
-        tts = TTS(model_name="tts_models/es/css10/vits", progress_bar=False, gpu=False)
-        tts.tts_to_file(text=cleaned_text, file_path=str(out_wav), language="es")
-        if out_wav.exists() and out_wav.stat().st_size > 0:
-            return out_wav
-    except Exception as e:
-        logging.error(f"Error en la síntesis de voz con VITS: {e}")
-    return None
 
-def _synthesize_xtts_with_pauses(text: str, out_wav: Path, tmpdir=None) -> Path | None:
-    try:
-        from TTS.api import TTS
-    except ImportError:
-        logging.error("Coqui TTS no está instalado. No se generará audio de voz.")
-        return None
-
-    cleaned_text = _clean_for_tts(text)
-    if not cleaned_text:
-        return None
-    
-    sents = _sentences(cleaned_text) or [cleaned_text]
-    
-    try:
-        tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2", progress_bar=False, gpu=False)
-        
-        tmp_parts = []
-        for i, s in enumerate(sents, 1):
-            part_path = (tmpdir / f"_xtts_part_{i}.wav") if tmpdir else (STATE / f"_xtts_part_{i}.wav")
-            tts.tts_to_file(text=s, file_path=str(part_path), language="es", speaker="Alma María")
-            if not part_path.exists(): raise FileNotFoundError
-            tmp_parts.append(part_path)
-        
-        silence_path = (tmpdir / "_xtts_silence.wav") if tmpdir else (STATE / "_xtts_silence.wav")
-        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.35", "-q:a", "9", str(silence_path)], check=True, capture_output=True)
-        
-        seq = []
-        for i, p in enumerate(tmp_parts):
-            seq.append(p)
-            if i < len(tmp_parts) - 1:
-                seq.append(silence_path)
-        
-        if _concat_wav_ffmpeg(seq, out_wav):
-            for p in set(tmp_parts + [silence_path]):
-                p.unlink()
-            return out_wav
-    except Exception as e:
-        logging.error(f"Error en la síntesis XTTS: {e}")
-    return None
 
 # (Opcional: si usas main() standalone, lo puedes dejar; si no, elimínalo)
 def main():
@@ -210,8 +297,8 @@ def main():
     sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
     tmdb_id = sel.get("tmdb_id", "unknown")
     title = sel.get("titulo") or sel.get("title") or ""
-    slug = slugify(title)  # Asumiendo que slugify está definido en otro lado
-
+    slug = slugify(title)
+    
     narracion, voice_path = generate_narration(sel, tmdb_id, slug)
     return narracion, voice_path
 
