@@ -6,6 +6,7 @@ token.json
 
 # --- Carpeta de configuración (contiene credenciales) ---
 config/
+test/
 
 # --- Outputs generados ---
 output/

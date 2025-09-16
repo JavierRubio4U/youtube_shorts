@@ -195,6 +195,14 @@ def main():
                             music_clip = music_clip.subclipped(0, final_clip.duration)  
                         logging.debug(f"Música ajustada a {final_clip.duration}s")
                         
+                        # Normalize audio and music
+                        # audio_clip = AudioFileClip(str(voice_path)) - se realiza antes
+                        audio_clip = audio_clip.with_effects([afx.AudioNormalize()])
+
+                        music_clip = AudioFileClip(str(music_path))
+                        music_clip = music_clip.with_effects([afx.AudioNormalize()])
+
+
                         # Fixed: Use .fx with afx instead of .with_effects
                         music_clip = music_clip.with_effects([afx.AudioFadeIn(1.0), afx.AudioFadeOut(1.0), afx.MultiplyVolume(0.10)])
                         final_audio = CompositeAudioClip([audio_clip, music_clip])
