@@ -4,9 +4,10 @@ import re
 import subprocess
 from pathlib import Path
 import ollama
-import slugify
+from slugify import slugify
 import moviepy.audio.fx as afx
-from moviepy import AudioFileClip, concatenate_audioclips
+# LÍNEA CORRECTA
+from moviepy.editor import AudioFileClip, concatenate_audioclips
 from moviepy.audio.AudioClip import AudioClip
 from langdetect import detect, DetectorFactory
 import warnings
@@ -16,6 +17,7 @@ import moviepy.video.fx as vfx
 from elevenlabs.client import ElevenLabs
 from elevenlabs import save
 import requests
+import tempfile
 
 # Para resultados consistentes
 DetectorFactory.seed = 0
@@ -197,17 +199,28 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
 
         client = ElevenLabs(api_key=API_KEY)
         
-        # 1. Verificar la suscripción con el método correcto
+        # Obtener datos de suscripción
         user_subscription_data = client.user.subscription.get()
-        
-        character_limit = user_subscription_data.character_limit
-        character_count = user_subscription_data.character_count
-        
-        # 2. Manejo de cuota
-        MAX_CHARACTERS = 0.9 * character_limit
-        if character_count > MAX_CHARACTERS:
-            logging.warning(f"¡Cuidado! Te estás quedando sin cuota de ElevenLabs. Usados: {character_count}/{character_limit}")
 
+        # Manejo seguro de limits
+        character_limit = user_subscription_data.character_limit
+        if character_limit is None:
+            logging.warning("Character limit is None; assuming unlimited plan.")
+            character_limit = float('inf')
+        elif isinstance(character_limit, str):
+            logging.warning(f"Character limit is string '{character_limit}'; assuming unlimited.")
+            character_limit = float('inf')
+        else:
+            character_limit = int(character_limit)  # Asegura int
+
+        character_count = user_subscription_data.character_count or 0  # Default 0 si None
+
+        # Quota check solo si finito
+        MAX_CHARACTERS = 0.9 * character_limit
+        if character_limit != float('inf') and character_count > MAX_CHARACTERS:
+            logging.warning(f"¡Cuidado! Te estás quedando sin cuota. Usados: {character_count}/{character_limit}")
+
+# Resto del código (generación audio)...
         # Generar audio con ElevenLabs
         audio_stream = client.text_to_speech.convert(
             voice_id=VOICE_ID,
@@ -298,8 +311,7 @@ def main():
     tmdb_id = sel.get("tmdb_id", "unknown")
     title = sel.get("titulo") or sel.get("title") or ""
     slug = slugify(title)
-    
-    narracion, voice_path = generate_narration(sel, tmdb_id, slug)
+    narracion, voice_path = generate_narration(sel, tmdb_id, slug, tmpdir=Path(tempfile.mkdtemp(prefix=f"narration_{tmdb_id}_")))
     return narracion, voice_path
 
 if __name__ == "__main__":

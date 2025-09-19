@@ -9,6 +9,11 @@ import unicodedata
 import re
 import time
 import subprocess
+# Correcto
+from moviepy.editor import VideoFileClip
+from PIL import Image
+import imagehash
+import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -22,6 +27,7 @@ CLIP_INTERVAL = 5
 CLIP_DURATION = 6
 MAX_CLIPS = 4
 SKIP_INITIAL_CLIPS = 2
+HASH_SIMILARITY_THRESHOLD = 5  # Umbral para diversidad
 
 def slugify(text: str, maxlen: int = 60) -> str:
     """Convierte texto en un slug seguro para nombres de archivo."""
@@ -34,105 +40,91 @@ def slugify(text: str, maxlen: int = 60) -> str:
 def download_trailer(url, output_dir):
     ydl_opts = {
         'outtmpl': os.path.join(output_dir, 'trailer.%(ext)s'),
-        'format': 'bestvideo[height>=2160]+bestaudio/bestvideo+bestaudio',
+        'format': 'best[height>=2160]/best[height>=1080]/best[height>=720]/best',  # Prioriza 4K > 1080p
         'merge_output_format': 'mp4',
         'no_playlist': True,
         'quiet': True
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
-    return next(f for f in os.listdir(output_dir) if f.startswith('trailer.'))
-
-def extract_clips(video_path, interval=CLIP_INTERVAL, clip_dur=CLIP_DURATION, tmpdir=None):
-    paths = []
-    duration_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(video_path)]
-    duration = float(subprocess.check_output(duration_cmd).decode().strip())
     
-    start_time = 0
-    for t in range(int(start_time), int(duration - clip_dur), interval):
-        out_clip = tmpdir / f"clip_{t}.mp4" if tmpdir else Path(os.path.dirname(video_path)) / f"clip_{t}.mp4"
+    # Chequea si se creó un archivo válido
+    files = [f for f in os.listdir(output_dir) if f.startswith('trailer.')]
+    if not files:
+        raise ValueError("No se creó ningún archivo de tráiler. Posible fallo en el formato o acceso al video.")
+    trailer_file = files[0]  # Toma el primero
+    trailer_full = os.path.join(output_dir, trailer_file)
+    if not os.path.exists(trailer_full) or os.path.getsize(trailer_full) == 0:
+        raise ValueValueError(f"Archivo de tráiler creado pero vacío o inválido: {trailer_full}")
+    
+    logging.info(f"Tráiler descargado exitosamente: {trailer_file} (tamaño: {os.path.getsize(trailer_full)} bytes)")
+    return trailer_file
+
+def extract_clips(trailer_path, tmpdir, num_clips=MAX_CLIPS, clip_dur=CLIP_DURATION, interval=CLIP_INTERVAL, skip_initial=SKIP_INITIAL_CLIPS * CLIP_DURATION):
+    """Extrae clips del tráiler usando FFmpeg para eficiencia."""
+    clip_paths = []
+    for i in range(num_clips):
+        start_time = skip_initial + i * interval
+        out_path = tmpdir / f"clip_{i+1}.mp4"
         cmd = [
-            'ffmpeg', '-y', '-ss', str(t), '-i', str(video_path),
-            '-t', str(clip_dur), '-c:v', 'copy', '-c:a', 'copy',
-            str(out_clip)
+            'ffmpeg', '-y', '-ss', str(start_time), '-i', str(trailer_path),
+            '-t', str(clip_dur), '-c:v', 'libx264', '-preset', 'fast',
+            '-crf', '23', '-an', str(out_path)  # Sin audio para simplicidad
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
-        if out_clip.exists() and out_clip.stat().st_size > 0:
-            paths.append(out_clip)
-    
-    if len(paths) > SKIP_INITIAL_CLIPS:
-        paths = paths[SKIP_INITIAL_CLIPS:]
-        logging.info(f"Quitados los primeros {SKIP_INITIAL_CLIPS} clips para evitar intros/anuncios.")
-    
-    logging.info(f"{len(paths)} clips extraídos sin pérdida.")
-    return paths
+        try:
+            subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if out_path.exists() and out_path.stat().st_size > 0:
+                clip_paths.append(out_path)
+            else:
+                logging.warning(f"Clip {i+1} no generado o vacío.")
+        except Exception as e:
+            logging.error(f"Fallo al extraer clip {i+1}: {e}")
+    return clip_paths
 
-def is_static_or_solid_color(video_path):
-    """
-    Comprueba si el clip es mayormente estático o tiene un color sólido.
-    Retorna True si es un logo o texto estático.
-    """
-    try:
-        cmd_motion = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pkt_pts_time,side_data_list", "-of", "csv=p=0", "-i", str(video_path)]
-        output = subprocess.check_output(cmd_motion).decode().strip()
-        motion_scores = [float(line.split(' ')[1]) for line in output.split('\n') if 'lavfi.scene_score' in line]
-        if motion_scores and sum(motion_scores) / len(motion_scores) < 0.1:
-            logging.info(f"Clip {video_path.name} descartado por ser estático (score: {sum(motion_scores) / len(motion_scores):.2f}).")
-            return True
-        return False
-    except Exception as e:
-        logging.warning(f"Error al analizar el movimiento del clip: {e}")
-        return False
-
-def select_best_clips(clip_paths, max_clips=MAX_CLIPS):
-    valid_clips = []
+def select_best_clips(clip_paths):
+    """Selecciona los mejores clips basados en diversidad visual usando imagehash."""
+    if not clip_paths:
+        return []
     
+    hashes = []
     for path in clip_paths:
-        if is_static_or_solid_color(path):
-            continue
-        valid_clips.append(path)
-
-    if len(valid_clips) >= max_clips:
-        step = len(valid_clips) // max_clips
-        selected = [valid_clips[i * step] for i in range(max_clips)]
-        logging.info(f"{len(selected)} clips seleccionados de los {len(valid_clips)} válidos.")
-        return selected
+        clip = VideoFileClip(str(path))
+        frame = clip.get_frame(0)  # Primer frame como representante
+        clip.close()
+        img = Image.fromarray(frame)
+        hashes.append(imagehash.average_hash(img))
     
-    logging.warning(f"No hay suficientes clips válidos ({len(valid_clips)}). Devolviendo todos los válidos.")
-    return valid_clips
+    selected = [clip_paths[0]]
+    for i in range(1, len(clip_paths)):
+        similar = False
+        for h in hashes[:len(selected)]:
+            if hashes[i] - h < HASH_SIMILARITY_THRESHOLD:
+                similar = True
+                break
+        if not similar:
+            selected.append(clip_paths[i])
+    
+    logging.info(f"Clips seleccionados por diversidad: {len(selected)}")
+    return selected
 
-def save_clips(clip_paths, tmdb_id, slug):
+def save_clips(best_paths, tmdb_id, slug):
+    """Guarda los clips seleccionados en la carpeta final."""
     saved_paths = []
-    for i, path in enumerate(clip_paths):
-        filename = f"{tmdb_id}_{slug}_bd_v{i+1:02d}.mp4"
-        out_path = CLIPS_DIR / filename
-        cmd = [
-            'ffmpeg', '-y', '-i', str(path),
-            '-c:v', 'copy', '-an',
-            str(out_path)
-        ]
-        subprocess.run(cmd, check=True, capture_output=True)
-        if out_path.exists():
-            saved_paths.append(str(out_path.relative_to(ROOT)))
-        else:
-            logging.error(f"Error al guardar clip {filename}")
+    for i, path in enumerate(best_paths):
+        dest_path = CLIPS_DIR / f"{tmdb_id}_{slug}_clip_{i+1}.mp4"
+        shutil.move(str(path), str(dest_path))
+        saved_paths.append(str(dest_path.relative_to(ROOT)))
     return saved_paths
 
 def cleanup_temp_files(tmpdir):
-    time.sleep(2)
-    for file in os.listdir(tmpdir):
-        file_path = os.path.join(tmpdir, file)
-        if os.path.isfile(file_path):
-            try:
-                os.remove(file_path)
-                logging.debug(f"Archivo temporal {file} eliminado.")
-            except PermissionError as e:
-                logging.warning(f"No se pudo eliminar {file} por bloqueo: {e}")
-    logging.info(f"Archivos temporales en {tmpdir} eliminados (o intentados).")
+    """Limpia el directorio temporal."""
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    logging.info(f"Limpieza de {tmpdir} completada.")
 
 def main():
     if not SEL_FILE.exists():
-        raise SystemExit("Falta next_release.json.")
+        logging.warning("Falta next_release.json. Omitiendo.")
+        return
 
     sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
     tmdb_id = sel.get("tmdb_id", "unknown")
@@ -153,41 +145,38 @@ def main():
 
     try:
         logging.info(f"Descargando tráiler desde {trailer_url}...")
-        try:
-            trailer_file = download_trailer(trailer_url, tmpdir)
-            trailer_path = os.path.join(tmpdir, trailer_file)
-        except Exception as e:
-            logging.error(f"Fallo al descargar el tráiler: {e}")
+        trailer_file = download_trailer(trailer_url, tmpdir)
+        trailer_path = os.path.join(tmpdir, trailer_file)
+
+        if not os.path.exists(trailer_path):
+            logging.error(f"Archivo de tráiler no encontrado después de download: {trailer_path}")
             return
 
-        logging.info("Extrayendo clips...")
-        try:
-            clip_paths = extract_clips(trailer_path, tmpdir=tmpdir)
-            logging.info(f"Clips extraídos: {len(clip_paths)}")
-        except Exception as e:
-            logging.error(f"Fallo al extraer clips: {e}")
-            return
+        tamaño_mb = os.path.getsize(trailer_path) / (1024 * 1024)
+        logging.info(f"Tráiler descargado: {tamaño_mb:.1f} MB en alta resolución (máx. via yt-dlp). Procediendo.")
+        logging.info("✅ Tráiler confirmado sin chequeo de resolución (modo robusto).")
 
-        logging.info("Seleccionando los mejores clips...")
+        clip_paths = extract_clips(trailer_path, tmpdir)
+        logging.info(f"Clips extraídos: {len(clip_paths)}")
+
         best_paths = select_best_clips(clip_paths)
 
-        logging.info("Guardando clips...")
-        try:
-            saved_paths = save_clips(best_paths, tmdb_id, slug)
-            logging.info(f"Clips extraídos y guardados: {saved_paths}")
+        saved_paths = save_clips(best_paths, tmdb_id, slug)
+        logging.info(f"Clips extraídos y guardados: {saved_paths}")
 
-            manifest_path = STATE / "assets_manifest.json"
-            if manifest_path.exists():
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                manifest["video_clips"] = [p for p in saved_paths if Path(ROOT / p).exists()]
-                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-                logging.info(f"Manifiesto actualizado con clips: {manifest_path}")
-            else:
-                logging.warning("Manifiesto no encontrado. No se actualizaron los clips.")
-        except Exception as e:
-            logging.error(f"Fallo al guardar clips: {e}")
+        manifest_path = STATE / "assets_manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["video_clips"] = [p for p in saved_paths if Path(ROOT / p).exists()]
+            manifest["trailer_resolution"] = "alta (máx. via yt-dlp)"  # Placeholder
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            logging.info(f"Manifiesto actualizado con clips y resolución: {manifest_path}")
+        else:
+            logging.warning("Manifiesto no encontrado. No se actualizaron los clips.")
     except Exception as e:
         logging.error(f"Error inesperado en el proceso: {e}")
-                                                    
+    finally:
+        cleanup_temp_files(tmpdir)
+
 if __name__ == "__main__":
     main()

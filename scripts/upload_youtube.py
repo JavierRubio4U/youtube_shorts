@@ -9,11 +9,11 @@ from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
-
-# Nuevos imports para fallback de frames y resize
-from moviepy import VideoFileClip
-from PIL import Image, ImageStat
-import logging  # Para logs extras
+# Correcto
+from moviepy.editor import VideoFileClip
+from PIL import Image, ImageStat  # Para chequeos y resize (ImageStat para brillo)
+import logging
+import numpy as np  # Si usas fromarray en extract_frame
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -27,12 +27,12 @@ TEMP_DIR = ROOT / "temp"  # Para thumbnails temp
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = ["https://www.googleapis.com/auth/youtube"]
 TOKEN_FILE = STATE_DIR / "youtube_token.json"
 CLIENT_SECRET_FILE = CONFIG_DIR / "client_secret.json"
 
 # ---------------------------------------------------------------------
-# Utils extras para thumbnails
+# Utils para thumbnails
 # ---------------------------------------------------------------------
 def is_black_image(image_path: Path, threshold: float = 10.0) -> bool:
     """Chequea si la imagen es mayormente negra (brillo promedio bajo)."""
@@ -80,7 +80,7 @@ def extract_frame_from_video(video_path: str, time_sec: float = 5.0) -> Path | N
         return None
 
 # ---------------------------------------------------------------------
-# Utils existentes
+# Utils existentes + FUNCIÓN DE POLLING MEJORADA
 # ---------------------------------------------------------------------
 def _debug_paths():
     print(f"[DBG] STATE_DIR     = {STATE_DIR.resolve()}")
@@ -108,87 +108,117 @@ def _get_youtube_service():
             flow = InstalledAppFlow.from_client_secrets_file(
                 CLIENT_SECRET_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open(TOKEN_FILE, "w") as token:
+        # Save the credentials for the next run
+        with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
-            print("[DBG] Token guardado.")
-    return build("youtube", "v3", credentials=creds)
+    return build('youtube', 'v3', credentials=creds)
 
-def upload_video(video_path: str, meta: dict):
-    if not Path(video_path).exists():
-        raise SystemExit(f"Falta el archivo de video: {video_path}")
-    
+def upload_video(video_path: str, meta: dict) -> str | None:
     youtube = _get_youtube_service()
-
     body = {
-        "snippet": {
-            "title": meta["title"],
-            "description": meta["description"],
-            "tags": meta["tags"],
-            "defaultLanguage": "es"
+        'snippet': {
+            'title': meta['title'],
+            'description': meta['description'],
+            'tags': meta['tags'],
+            'categoryId': '24'  # Entertainment
         },
-        "status": {
-            "privacyStatus": meta["default_visibility"],
-            "selfDeclaredMadeForKids": meta["made_for_kids"]
-        },
+        'status': {
+            'privacyStatus': meta.get('default_visibility', 'public'),
+            'madeForKids': meta.get('made_for_kids', False),
+            'selfDeclaredMadeForKids': False
+        }
     }
-
-    print(f"Subiendo a YouTube... Título: '{meta['title']}'")
-    insert_req = youtube.videos().insert(
-        part=",".join(body.keys()),
-        body=body,
-        media_body=MediaFileUpload(video_path, chunksize=-1, resumable=True)
-    )
-
-    response = None
+    
     try:
-        response = insert_req.execute()
-        video_id = response.get("id")
-        if video_id:
-            # --- AQUÍ VA EL CÓDIGO ---
-            print(f"✅ Video subido con ID: {video_id}. Esperando 30 segundos...")
-            time.sleep(30) # <-- 2. AÑADE LA PAUSA AQUÍ
-            # Subir thumbnail: usar el póster almacenado
-            tmdb_id = meta["tmdb_id"]
-            thumbnail_path = ROOT / "assets" / "posters" / f"{tmdb_id}_poster.jpg"
-            resized_path = None
-            if thumbnail_path.exists() and not is_black_image(thumbnail_path):
-                resized_path = resize_image_for_thumbnail(thumbnail_path)
-                if resized_path:
+        insert_request = youtube.videos().insert(
+            part=",".join(body.keys()),
+            body=body,
+            media_body=MediaFileUpload(video_path, chunksize=-1, resumable=True)
+        )
+        response = insert_request.execute()
+        video_id = response['id']
+        print(f"✅ Video subido con ID: {video_id}")
+        
+        # Polling para status (opcional, ~1-2 min)
+        time.sleep(30)  # Espera inicial
+        for i in range(6):  # Max 5 min
+            status = youtube.videos().list(part="processingDetails", id=video_id).execute()
+            proc_status = status['items'][0]['processingDetails']['processingStatus']
+            print(f"Status procesamiento: {proc_status}")
+            if proc_status == 'succeeded':
+                break
+            time.sleep(30)
+        
+        # Thumbnail
+        tmdb_id = meta["tmdb_id"]
+        thumbnail_path = ROOT / "assets" / "posters" / f"{tmdb_id}_poster.jpg"
+        resized_path = None
+        if thumbnail_path.exists() and not is_black_image(thumbnail_path):
+            resized_path = resize_image_for_thumbnail(thumbnail_path)
+            if resized_path:
+                try:
                     youtube.thumbnails().set(
                         videoId=video_id,
                         media_body=MediaFileUpload(str(resized_path))
                     ).execute()
-                    print(f"✅ Thumbnail (póster redimensionado) subido para video ID: {video_id}")
-                    resized_path.unlink(missing_ok=True)  # Limpia temp
-            else:
-                print(f"⚠️ Póster no encontrado o inválido (negro): {thumbnail_path}")
-                # Fallback 1: Usa el primer backdrop si existe
-                backdrops_dir = ROOT / "assets" / "backdrops"  # Ajusta si tu carpeta es distinta
-                fallback_thumb = list(backdrops_dir.glob(f"{tmdb_id}_backdrop_*.jpg"))  # Ajusta patrón
-                if fallback_thumb and not is_black_image(fallback_thumb[0]):
-                    thumbnail_path = fallback_thumb[0]
-                    resized_path = resize_image_for_thumbnail(thumbnail_path)
-                    if resized_path:
-                        print(f"Usando fallback backdrop redimensionado: {resized_path}")
+                    print(f"✅ Thumbnail (póster) subido para video ID: {video_id}")
+                    # Verificar
+                    time.sleep(10)
+                    if verify_thumbnail_applied(youtube, video_id):
+                        print("✅ Thumbnail verificado.")
+                    else:
+                        print("⚠️ Thumbnail subido pero no verificado. Chequea manualmente.")
+                except Exception as thumb_err:
+                    print(f"⚠️ Fallo al subir thumbnail: {thumb_err}")
+                finally:
+                    resized_path.unlink(missing_ok=True)
+        else:
+            print(f"⚠️ Póster no encontrado o inválido (negro): {thumbnail_path}")
+            # Fallback 1: Usa el primer backdrop si existe
+            backdrops_dir = ROOT / "assets" / "backdrops"
+            fallback_thumb = list(backdrops_dir.glob(f"{tmdb_id}_backdrop_*.jpg"))
+            if fallback_thumb and not is_black_image(fallback_thumb[0]):
+                thumbnail_path = fallback_thumb[0]
+                resized_path = resize_image_for_thumbnail(thumbnail_path)
+                if resized_path:
+                    print(f"Usando fallback backdrop redimensionado: {resized_path}")
+                    try:
                         youtube.thumbnails().set(
                             videoId=video_id,
                             media_body=MediaFileUpload(str(resized_path))
                         ).execute()
                         print(f"✅ Thumbnail fallback (backdrop) subido para video ID: {video_id}")
+                        time.sleep(10)
+                        if verify_thumbnail_applied(youtube, video_id):
+                            print("✅ Thumbnail fallback verificado.")
+                        else:
+                            print("⚠️ Thumbnail fallback subido pero no verificado. Chequea manualmente.")
+                    except Exception as thumb_err:
+                        print(f"⚠️ Fallo al subir thumbnail fallback: {thumb_err}")
+                    finally:
                         resized_path.unlink(missing_ok=True)
-                else:
-                    # Fallback 2: Extrae frame del video
-                    print("⚠️ No hay backdrop válido. Extrayendo frame del video...")
-                    frame_path = extract_frame_from_video(video_path, time_sec=5.0)  # ~inicio del primer clip, ya redimensiona
-                    if frame_path and not is_black_image(frame_path):
+            else:
+                # Fallback 2: Extrae frame del video
+                print("⚠️ No hay backdrop válido. Extrayendo frame del video...")
+                frame_path = extract_frame_from_video(video_path, time_sec=5.0)
+                if frame_path and not is_black_image(frame_path):
+                    try:
                         youtube.thumbnails().set(
                             videoId=video_id,
                             media_body=MediaFileUpload(str(frame_path))
                         ).execute()
                         print(f"✅ Thumbnail (frame del video) subido para video ID: {video_id}")
+                        time.sleep(10)
+                        if verify_thumbnail_applied(youtube, video_id):
+                            print("✅ Thumbnail de frame verificado.")
+                        else:
+                            print("⚠️ Thumbnail de frame subido pero no verificado. Chequea manualmente.")
+                    except Exception as thumb_err:
+                        print(f"⚠️ Fallo al subir thumbnail de frame: {thumb_err}")
+                    finally:
                         frame_path.unlink(missing_ok=True)
-                    else:
-                        print("⚠️ No se pudo extraer frame válido. YouTube usará thumbnails auto-generados.")
+                else:
+                    print("⚠️ No se pudo extraer frame válido. YouTube usará thumbnails auto-generados.")
         return video_id
     except Exception as e:
         print(f"Fallo en la subida: {e}")
@@ -196,6 +226,14 @@ def upload_video(video_path: str, meta: dict):
         if 'resized_path' in locals() and resized_path:
             resized_path.unlink(missing_ok=True)
         return None
+
+def verify_thumbnail_applied(youtube, video_id):
+    """Verifica si el thumbnail se aplicó correctamente."""
+    try:
+        thumbs = youtube.thumbnails().list(videoId=video_id, part="items").execute()
+        return len(thumbs.get('items', [])) > 0
+    except:
+        return False
 
 # ---------------------------------------------------------------------
 # CLI
@@ -221,7 +259,6 @@ def main(video_path: str | None = None):
     if video_id:
         print("✅ Subida completada. ID:", video_id)
     return video_id
-
 
 if __name__ == "__main__":
     main()
