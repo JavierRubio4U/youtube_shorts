@@ -133,44 +133,31 @@ def find_best_hype_trailer(title: str, verify_by_download=False, min_height=1080
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': True,  # Solo metadata, no download
+            'extract_flat': True,  # No descargar, solo info
+            'skip_download': True,
             'logger': SilentLogger(),
+            'playlistend': 20,  # Limitar a top 20
+            'match_filter': lambda info: 'trailer' in (info.get('title', '') or '').lower(),
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                search_results = ydl.extract_info(f"ytsearch10:{query}", download=False)['entries']
-                if not search_results:
-                    continue
-
-                # Sort by view_count descending
-                search_results.sort(key=lambda x: x.get('view_count', 0), reverse=True)
-
-                for result in search_results:
-                    url = result.get('url')
-                    views = result.get('view_count', 0)
-                    if views <= best_views:
-                        continue  # Skip if fewer views than current best
-
-                    # Check quality
-                    height = 0
-                    formats = result.get('formats', [])
-                    if formats:
-                        height = max([f.get('height', 0) for f in formats if f.get('vcodec') and f.get('height')], default=0)
-                    elif url:  # Fallback to detailed extract if needed
-                        height_info = ydl.extract_info(url, download=False)
-                        formats = height_info.get('formats', [])
-                        height = max([f.get('height', 0) for f in formats if f.get('vcodec') and f.get('height')], default=0)
-
-                    if height >= min_height and height > best_height:
-                        # Verify if requested (for speed, default False)
-                        if verify_by_download:
-                            if not verify_trailer_quality(url, min_height, verify_by_download):
-                                continue
-                        best_url = url
-                        best_views = views
-                        best_height = height
-                        logging.info(f"Encontrado mejor candidato en YouTube: {url} (views: {views}, height: {height}p)")
-                        # No break: check all for potentially better
+                search_results = ydl.extract_info(f"ytsearch20:{query}", download=False)['entries']
+                for entry in search_results:
+                    if not entry:
+                        continue
+                    url = entry.get('url')
+                    views = entry.get('view_count', 0)
+                    height = entry.get('height', 0) or 0
+                    if height < min_height:
+                        continue
+                    if verify_by_download:
+                        if not verify_trailer_quality(url, min_height, verify_by_download):
+                            continue
+                    best_url = url
+                    best_views = views
+                    best_height = height
+                    logging.info(f"Encontrado mejor candidato en YouTube: {url} (views: {views}, height: {height}p)")
+                    # No break: check all for potentially better
 
         except Exception as e:
             logging.warning(f"Error en búsqueda YouTube para '{query}': {e}")
@@ -194,7 +181,8 @@ def pick_next(verify_by_download=False):
     top_6 = [m for m in movies if m["id"] not in exclude][:6]
     logging.info(f"Top 6 candidatos por hype: {len(top_6)}")
     for i, m in enumerate(top_6):
-        logging.info(f"📋 Candidato {i+1}: {m['titulo']} (ID: {m['id']}, hype: {m['hype']})")
+        platforms_str = ', '.join(m.get('platforms', [])) or 'No especificado'
+        logging.info(f"📋 Candidato {i+1}: {m['titulo']} (ID: {m['id']}, hype: {m['hype']}, platforms: {platforms_str})")
 
     candidate = None
     trailer_url = None
@@ -245,6 +233,7 @@ def pick_next(verify_by_download=False):
         "certificacion_ES": candidate["certificacion_ES"],
         "reparto_top": candidate["reparto_top"],
         "keywords": candidate["keywords"],
+        "platforms": candidate["platforms"],  # Nuevo: Incluir platforms en el payload
         "seleccion_generada": datetime.now(UTC).isoformat().replace("+00:00", "Z")
     }
 

@@ -70,8 +70,20 @@ def _shorten(text: str, max_len: int) -> str:
         text = text.rstrip('.,-') + '...'
     return text
 
-def _make_title(titulo: str, fecha: str) -> str:
-    base = f"{titulo} — estreno {fecha}".strip()
+def _format_date(release_date: str) -> str:
+    """Formatea YYYY-MM-DD a DD/MM/YY."""
+    if not release_date:
+        return ""
+    try:
+        dt = datetime.strptime(release_date, "%Y-%m-%d")
+        return dt.strftime("%d/%m/%y")
+    except ValueError:
+        return release_date  # Fallback si formato inválido
+
+def _make_title(titulo: str, fecha: str, platforms: list[str]) -> str:
+    formatted_date = _format_date(fecha)
+    platform_str = " - " + " / ".join(platforms) if platforms else ""  # Une múltiples con /
+    base = f"{titulo}{platform_str} - {formatted_date}".strip()
     return _shorten(base, 60)
 
 def _make_tags(generos, reparto_top, max_cast=3):
@@ -135,13 +147,14 @@ def main():
     sinopsis = sel.get("sinopsis") or ""
     trailer = man.get("trailer_url") or sel.get("trailer_url")
     certificacion = sel.get("certificacion_ES")
+    platforms = sel.get("platforms", [])  # Nuevo: Usar el campo platforms de next_release.json
 
-    title = _make_title(titulo, fecha_es)
+    title = _make_title(titulo, fecha_es, platforms)
     tags = _make_tags(generos, reparto, max_cast=3)
     made_for_kids = _is_made_for_kids(certificacion, generos)
 
     lines = []
-    lines.append(f"{titulo} — estreno: {fecha_es}".strip())
+    lines.append(title)  # Título con plataformas incluidas
     if generos:
         lines.append("Género: " + ", ".join(generos))
     if reparto:
@@ -151,6 +164,8 @@ def main():
     if vote_avg is not None:    metrics.append(f"TMDb: {vote_avg} ({vote_count or 0} votos)")
     if metrics:
         lines.append(" | ".join(metrics))
+    if platforms:  # Nuevo: Añadir plataformas en descripción
+        lines.append(f"Disponible en: {', '.join(platforms)}")
     if sinopsis:
         lines.append("")
         lines.append("Sinopsis:")
