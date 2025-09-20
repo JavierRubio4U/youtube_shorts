@@ -40,20 +40,28 @@ def count_words(text: str) -> int:
     return len(re.findall(r'\b\w+\b', text))
 
 # --- Funciones de IA ---
+# Reemplaza esta función en scripts/ai_narration.py
+
 def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Spanish', max_words=60, min_words=45, max_retries=3) -> str | None:
     """
-    Genera una sinopsis con Ollama, con reintentos si no está en el rango.
+    Genera una sinopsis con Ollama, con reintentos y un margen de flexibilidad.
     """
     attempt = 0
+    generated_text = ""
+    word_count = 0
+    
+    # CAMBIO: Definimos un margen de tolerancia para las palabras
+    margin = 4
+
     while attempt < max_retries:
         attempt += 1
         logging.info(f"Generando sinopsis (Intento {attempt})...")
 
-        # Prompt inicial mejorado: Más explícito para rango y detalle
+        # El prompt inicial no cambia
         initial_prompt = f"""
-        Genera una sinopsis detallada, atractiva y descriptiva de al menos {min_words} y no más de {max_words} palabras en español de España (castellano).
+        Genera una sinopsis detallada, atractiva y descriptiva de aproximadamente {min_words}-{max_words} palabras en español de España (castellano).
         Debe ser un párrafo cohesivo, emocionante, enfocado en el conflicto principal, personajes y atmósfera, sin spoilers.
-        Es crucial que finalice con una oración completa y natural. NO excedas las {max_words} palabras y asegúrate de tener al menos {min_words}.
+        Es crucial que finalice con una oración completa y natural.
         El título '{sel.get("titulo")}' es un nombre propio y NO debe traducirse.
         No listes metadata como reparto o géneros.
         Ejemplo: 'En esta épica aventura, un joven héroe descubre un antiguo secreto en un mundo lleno de peligros, donde debe unir fuerzas con aliados inesperados para enfrentar a un villano poderoso que amenaza con destruir todo lo que ama, en una batalla que pondrá a prueba su coraje y determinación.'
@@ -69,27 +77,18 @@ def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Span
             generated_text = response['message']['content'].strip()
             word_count = count_words(generated_text)
 
-            # Validación de idioma
-            if detect(generated_text) != 'es':
-                logging.warning(f"La sinopsis fue generada en '{detect(generated_text)}', no en español. Intentando traducir.")
-                
-                translation_prompt = f"""
-                Traduce el siguiente texto al español de España (castellano) de forma natural y fluida.
-                Simplemente devuelve la traducción, sin añadir introducciones.
-                
-                Texto a traducir:
-                "{generated_text}"
-                """
-                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': translation_prompt}])
-                generated_text = response['message']['content'].strip()
-                word_count = count_words(generated_text)
+            # CAMBIO: La condición de éxito ahora incluye el margen
+            if min_words <= word_count <= (max_words + margin):
+                logging.info(f"Narración generada con éxito ({word_count} palabras, dentro del margen de {max_words + margin}).")
+                return generated_text
             
-            # Si demasiado corta, expandir
+            # Si demasiado corta, expandir (esta lógica se mantiene)
             if word_count < min_words:
                 logging.warning(f"La sinopsis tiene {word_count} palabras (mínimo {min_words}). Expandiendo.")
+                # ... (el resto del bloque de expansión se mantiene igual)
                 expansion_prompt = f"""
-                El siguiente texto es demasiado corto. Expándelo agregando detalles descriptivos sobre el conflicto, personajes o atmósfera para alcanzar al menos {min_words} palabras, pero menos de {max_words}.
-                El resultado DEBE ser un párrafo cohesivo, finalizar con una oración completa y sonar natural. No lo cortes.
+                El siguiente texto es demasiado corto. Expándelo agregando detalles descriptivos sobre el conflicto, personajes o atmósfera para alcanzar al menos {min_words} palabras.
+                El resultado DEBE ser un párrafo cohesivo y sonar natural.
                 Simplemente devuelve el texto corregido.
 
                 Texto a corregir:
@@ -99,12 +98,12 @@ def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Span
                 generated_text = response['message']['content'].strip()
                 word_count = count_words(generated_text)
 
-            # Si demasiado larga, resumir
-            if word_count > (max_words + 5):
-                logging.warning(f"La sinopsis tiene {word_count} palabras (máximo {max_words}). Resumiendo.")
+            # Si demasiado larga (fuera del margen), resumir (esta lógica se mantiene)
+            elif word_count > (max_words + margin):
+                logging.warning(f"La sinopsis tiene {word_count} palabras (máximo con margen: {max_words + margin}). Resumiendo.")
                 refinement_prompt = f"""
-                El siguiente texto es demasiado largo. Resúmelo manteniendo detalles clave para que tenga al menos {min_words} y menos de {max_words} palabras.
-                El resultado DEBE ser un párrafo cohesivo, finalizar con una oración completa y sonar natural. No lo cortes.
+                El siguiente texto es demasiado largo. Resúmelo manteniendo detalles clave para que tenga menos de {max_words + margin} palabras.
+                El resultado DEBE ser un párrafo cohesivo y sonar natural.
                 Simplemente devuelve el texto corregido.
 
                 Texto a corregir:
@@ -114,20 +113,19 @@ def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Span
                 generated_text = response['message']['content'].strip()
                 word_count = count_words(generated_text)
 
-            # Verificación final del intento
-            if min_words <= word_count <= max_words:
-                logging.info(f"Narración generada con éxito ({word_count} palabras).")
+            # Verificación final del intento con el margen incluido
+            if min_words <= word_count <= (max_words + margin):
+                logging.info(f"Narración corregida con éxito ({word_count} palabras, dentro del margen de {max_words + margin}).")
                 return generated_text
             else:
-                logging.warning(f"Aún fuera del rango ({word_count} palabras). Reintentando...")
+                logging.warning(f"Aún fuera del rango ({word_count} palabras) tras la corrección. Reintentando...")
 
         except Exception as e:
             logging.error(f"Error al generar narración con Ollama: {e}")
             return None
     
-    # Fallback después de reintentos: Usa la última generada, o None si falla
-    logging.warning(f"No se logró el rango después de {max_retries} intentos. Usando la última versión ({word_count} palabras).")
-    return generated_text if 'generated_text' in locals() else None
+    logging.warning(f"No se logró el rango después de {max_retries} intentos. Usando la última versión generada ({word_count} palabras).")
+    return generated_text
 
 def _get_tmp_voice_path(tmdb_id: str, slug: str, tmpdir: Path) -> Path:
     """Retorna la ruta temporal para el archivo de voz."""

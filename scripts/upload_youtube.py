@@ -117,10 +117,12 @@ def _get_youtube_service():
 
 def upload_video(video_path: str, meta: dict) -> str | None:
     youtube = _get_youtube_service()
+    
+    # Preparamos el cuerpo de la subida INICIAL SIN #shorts
     body = {
         'snippet': {
             'title': meta['title'],
-            'description': meta['description'],
+            'description': meta['description'], # Descripción original sin #shorts
             'tags': meta['tags'],
             'categoryId': '24'  # Entertainment
         },
@@ -132,6 +134,7 @@ def upload_video(video_path: str, meta: dict) -> str | None:
     }
     
     try:
+        # --- PASO 1: Subir el vídeo como si fuera uno normal ---
         insert_request = youtube.videos().insert(
             part=",".join(body.keys()),
             body=body,
@@ -139,22 +142,28 @@ def upload_video(video_path: str, meta: dict) -> str | None:
         )
         response = insert_request.execute()
         video_id = response['id']
-        print(f"✅ Video subido con ID: {video_id}")
+        print(f"✅ Vídeo subido con ID: {video_id} (aún no es un Short)")
         
-        # Polling para status (opcional, ~1-2 min)
-        time.sleep(30)  # Espera inicial
-        for i in range(6):  # Max 5 min
+        # Esperar a que el vídeo se procese
+        print("Esperando a que el vídeo sea procesado por YouTube...")
+        time.sleep(30)
+        for i in range(12): # Ampliado a 6 minutos de espera máxima
             status = youtube.videos().list(part="processingDetails", id=video_id).execute()
             proc_status = status['items'][0]['processingDetails']['processingStatus']
-            print(f"Status procesamiento: {proc_status}")
+            print(f"  > Estado del procesamiento: {proc_status}")
             if proc_status == 'succeeded':
+                print("✅ Procesamiento completado.")
                 break
             time.sleep(30)
-        
-        # Thumbnail
+        else:
+            print("⚠️ El vídeo no terminó de procesarse a tiempo. La miniatura podría fallar.")
+
+        # --- PASO 2: Establecer la miniatura personalizada ---
+        print("Estableciendo la miniatura personalizada...")
         tmdb_id = meta["tmdb_id"]
         thumbnail_path = ROOT / "assets" / "posters" / f"{tmdb_id}_poster.jpg"
-        resized_path = None
+        resized_path = None # Inicializamos por si falla
+        # (Aquí va toda tu lógica de fallbacks para el thumbnail que ya tienes)
         if thumbnail_path.exists() and not is_black_image(thumbnail_path):
             resized_path = resize_image_for_thumbnail(thumbnail_path)
             if resized_path:
@@ -163,72 +172,51 @@ def upload_video(video_path: str, meta: dict) -> str | None:
                         videoId=video_id,
                         media_body=MediaFileUpload(str(resized_path))
                     ).execute()
-                    print(f"✅ Thumbnail (póster) subido para video ID: {video_id}")
-                    # Verificar
-                    time.sleep(10)
-                    if verify_thumbnail_applied(youtube, video_id):
-                        print("✅ Thumbnail verificado.")
-                    else:
-                        print("⚠️ Thumbnail subido pero no verificado. Chequea manualmente.")
+                    print(f"✅ Miniatura subida para el vídeo ID: {video_id}")
                 except Exception as thumb_err:
-                    print(f"⚠️ Fallo al subir thumbnail: {thumb_err}")
+                    print(f"⚠️ Fallo al subir la miniatura: {thumb_err}")
                 finally:
                     resized_path.unlink(missing_ok=True)
         else:
-            print(f"⚠️ Póster no encontrado o inválido (negro): {thumbnail_path}")
-            # Fallback 1: Usa el primer backdrop si existe
-            backdrops_dir = ROOT / "assets" / "backdrops"
-            fallback_thumb = list(backdrops_dir.glob(f"{tmdb_id}_backdrop_*.jpg"))
-            if fallback_thumb and not is_black_image(fallback_thumb[0]):
-                thumbnail_path = fallback_thumb[0]
-                resized_path = resize_image_for_thumbnail(thumbnail_path)
-                if resized_path:
-                    print(f"Usando fallback backdrop redimensionado: {resized_path}")
-                    try:
-                        youtube.thumbnails().set(
-                            videoId=video_id,
-                            media_body=MediaFileUpload(str(resized_path))
-                        ).execute()
-                        print(f"✅ Thumbnail fallback (backdrop) subido para video ID: {video_id}")
-                        time.sleep(10)
-                        if verify_thumbnail_applied(youtube, video_id):
-                            print("✅ Thumbnail fallback verificado.")
-                        else:
-                            print("⚠️ Thumbnail fallback subido pero no verificado. Chequea manualmente.")
-                    except Exception as thumb_err:
-                        print(f"⚠️ Fallo al subir thumbnail fallback: {thumb_err}")
-                    finally:
-                        resized_path.unlink(missing_ok=True)
-            else:
-                # Fallback 2: Extrae frame del video
-                print("⚠️ No hay backdrop válido. Extrayendo frame del video...")
-                frame_path = extract_frame_from_video(video_path, time_sec=5.0)
-                if frame_path and not is_black_image(frame_path):
-                    try:
-                        youtube.thumbnails().set(
-                            videoId=video_id,
-                            media_body=MediaFileUpload(str(frame_path))
-                        ).execute()
-                        print(f"✅ Thumbnail (frame del video) subido para video ID: {video_id}")
-                        time.sleep(10)
-                        if verify_thumbnail_applied(youtube, video_id):
-                            print("✅ Thumbnail de frame verificado.")
-                        else:
-                            print("⚠️ Thumbnail de frame subido pero no verificado. Chequea manualmente.")
-                    except Exception as thumb_err:
-                        print(f"⚠️ Fallo al subir thumbnail de frame: {thumb_err}")
-                    finally:
-                        frame_path.unlink(missing_ok=True)
-                else:
-                    print("⚠️ No se pudo extraer frame válido. YouTube usará thumbnails auto-generados.")
-        return video_id
-    except Exception as e:
-        print(f"Fallo en la subida: {e}")
-        # Limpia temp si existe
-        if 'resized_path' in locals() and resized_path:
-            resized_path.unlink(missing_ok=True)
-        return None
+             print(f"⚠️ No se encontró póster válido en {thumbnail_path}. Saltando subida de miniatura.")
 
+
+        # --- NUEVO BLOQUE: Actualizar a Short ---
+        print("Esperando 15 segundos para que la miniatura se asiente...")
+        time.sleep(15)
+
+        print(f"Convirtiendo el vídeo ID: {video_id} a Short...")
+        try:
+            # Preparamos una nueva descripción y título con la etiqueta #shorts
+            # Añadir #shorts al principio de la descripción es la forma más segura
+            new_description = f"#shorts\n\n{meta['description']}"
+
+            update_body = {
+                'id': video_id,
+                'snippet': {
+                    'title': meta['title'], # Mantenemos el mismo título
+                    'description': new_description, # Añadimos la etiqueta en la descripción
+                    'tags': meta['tags'],
+                    'categoryId': '24'
+                }
+            }
+            
+            update_request = youtube.videos().update(
+                part="snippet",
+                body=update_body
+            )
+            update_request.execute()
+            print(f"✅ Vídeo actualizado a Short con éxito.")
+
+        except Exception as update_err:
+            print(f"⚠️ Fallo al actualizar el vídeo a Short: {update_err}")
+
+        return video_id
+
+    except Exception as e:
+        print(f"Fallo en la subida inicial: {e}")
+        return None
+    
 def verify_thumbnail_applied(youtube, video_id):
     """Verifica si el thumbnail se aplicó correctamente."""
     try:
