@@ -42,33 +42,33 @@ def slugify(text: str, maxlen: int = 50) -> str:
 
 def main():
     # # Paso 1: Seleccionar siguiente película
-    # logging.info("▶ Paso 1: seleccionar siguiente película…")
-    # sel = select_next_release.pick_next()
-    # if sel:
-    #     tmdb_id = str(sel.get("tmdb_id"))
-    #     clips_dir = ROOT / "assets" / "video_clips"
-    #     for file in clips_dir.iterdir():
-    #         if file.is_file() and not file.name.startswith(tmdb_id):
-    #             try:
-    #                 file.unlink()
-    #                 logging.info(f"Clip viejo eliminado: {file.name}")
-    #             except Exception as e:
-    #                 logging.warning(f"No se pudo eliminar {file.name}: {e}")
-    # else:
-    #     logging.error("🛑 No se seleccionó película. Proceso detenido.")
-    #     return
+    logging.info("▶ Paso 1: seleccionar siguiente película…")
+    sel = select_next_release.pick_next()
+    if sel:
+        tmdb_id = str(sel.get("tmdb_id"))
+        clips_dir = ROOT / "assets" / "video_clips"
+        for file in clips_dir.iterdir():
+            if file.is_file() and not file.name.startswith(tmdb_id):
+                try:
+                    file.unlink()
+                    logging.info(f"Clip viejo eliminado: {file.name}")
+                except Exception as e:
+                    logging.warning(f"No se pudo eliminar {file.name}: {e}")
+    else:
+        logging.error("🛑 No se seleccionó película. Proceso detenido.")
+        return
 
-    # # Paso 2: Descargar assets
-    # logging.info("▶ Paso 2: descargar assets (vertical/letterbox, 8 backdrops)…")
-    # download_assets.main()  # Usa el módulo original
+    # Paso 2: Descargar assets
+    logging.info("▶ Paso 2: descargar assets (vertical/letterbox, 8 backdrops)…")
+    download_assets.main()  # Usa el módulo original
 
-    # # Paso 2.5: Extraer clips del tráiler
-    # logging.info("▶ Paso 2.5: extraer clips del tráiler (con logs verbose)...")
-    # result = subprocess.run(["python", str(ROOT / "scripts" / "extract_video_clips_from_trailer.py")], 
-    #                         check=True, cwd=ROOT, capture_output=False, text=True)
-    # print("STDOUT de extracción:", result.stdout)
-    # if result.stderr:
-    #     print("STDERR de extracción:", result.stderr)
+    # Paso 2.5: Extraer clips del tráiler
+    logging.info("▶ Paso 2.5: extraer clips del tráiler (con logs verbose)...")
+    result = subprocess.run(["python", str(ROOT / "scripts" / "extract_video_clips_from_trailer.py")], 
+                            check=True, cwd=ROOT, capture_output=False, text=True)
+    print("STDOUT de extracción:", result.stdout)
+    if result.stderr:
+        print("STDERR de extracción:", result.stderr)
 
     # Chequeo de clips (de manifiesto)
     manifest_path = STATE / "assets_manifest.json"
