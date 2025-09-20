@@ -162,7 +162,7 @@ def enrich_movie(mid):
     elif flatrate:  # Modificado: Si hay flatrate pero no prioritarios, mostrarlos directamente
         platforms = flatrate  # Usa los nombres reales
     else:
-        platforms.append("Otras plataformas")  # Fallback solo si no hay nada
+        platforms.append("TBD")  # Fallback solo si no hay nada
 
     # Métricas de interés
     popularity = data.get("popularity", 0.0) or 0.0
