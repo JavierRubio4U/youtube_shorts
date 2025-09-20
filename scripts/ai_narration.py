@@ -5,10 +5,9 @@ import subprocess
 from pathlib import Path
 import ollama
 from slugify import slugify
-import moviepy.audio.fx as afx
 # LÍNEA CORRECTA
-from moviepy.editor import AudioFileClip, concatenate_audioclips
-from moviepy.audio.AudioClip import AudioClip
+from moviepy import AudioFileClip, concatenate_audioclips, AudioClip
+import moviepy.audio.fx as afx
 from langdetect import detect, DetectorFactory
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")

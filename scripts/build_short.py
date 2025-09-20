@@ -6,18 +6,18 @@ from pathlib import Path
 import json, os, logging, re
 from PIL import Image
 import numpy as np
-#from moviepy import VideoFileClip, concatenate_videoclips, ImageClip, CompositeVideoClip, AudioFileClip, concatenate_audioclips  # Imports actualizados para v2.2.1
-from moviepy.audio.AudioClip import CompositeAudioClip, AudioClip  # Para mezcla y silencio
-import moviepy.audio.fx as afx
+
 import separate_narration  # Nuevo script para narración separada
 import tempfile
 import shutil
 from slugify import slugify
-from moviepy.editor import (VideoFileClip, ImageClip, AudioFileClip, AudioClip,
-                            CompositeVideoClip, CompositeAudioClip,
-                            concatenate_videoclips, concatenate_audioclips, afx)
+# CAMBIO: Imports directos desde moviepy, no moviepy.editor
+from moviepy import (VideoFileClip, ImageClip, AudioFileClip, AudioClip,
+                     CompositeVideoClip, CompositeAudioClip,
+                     concatenate_videoclips, concatenate_audioclips)
+import moviepy.audio.fx as afx
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')  # Cambia a DEBUG si necesitas más detalles
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
@@ -40,14 +40,15 @@ def clip_from_img(path: Path, dur: float) -> ImageClip:
         current_ratio = img_w / img_h
         if current_ratio > target_ratio:
             # Landscape: Escalar por alto, crop lateral
-            img_clip = img_clip.resize(height=H)  # Corrige a resize
+            img_clip = img_clip.resized(height=H)
             left_crop = (img_clip.w - W) // 2
-            img_clip = img_clip.crop(x1=left_crop, x2=img_clip.w - left_crop)
+            img_clip = img_clip.cropped(x1=left_crop, x2=img_clip.w - left_crop)
         else:
             # Portrait: Escalar por ancho, crop vertical
-            img_clip = img_clip.resize(width=W)  # Corrige a resize
+            img_clip = img_clip.resized(width=W)
             top_crop = (img_clip.h - H) // 2
-            img_clip = img_clip.crop(y1=top_crop, y2=clip.h - top_crop)
+            # CORRECCIÓN: Usar img_clip.h en lugar de clip.h
+            img_clip = img_clip.cropped(y1=top_crop, y2=img_clip.h - top_crop)
         return img_clip
     except Exception as e:
         logging.error(f"Error al cargar imagen {path}: {e}")
@@ -58,17 +59,16 @@ def resize_to_9_16(clip):
     target_ratio = 9 / 16
     current_ratio = clip.w / clip.h
    
-    # Escalar al máximo sin distorsión y crop (tratamiento único para todos)
     if current_ratio > target_ratio: # Landscape: escalar por alto, crop lateral
-        clip = clip.resize(height=H)
+        clip = clip.resized(height=H)
         left_crop = (clip.w - W) // 2
         logging.debug(f"Crop lateral: offset {left_crop}, nuevo ancho {W}")
-        clip = clip.crop(x1=left_crop, x2=clip.w - left_crop)
+        clip = clip.cropped(x1=left_crop, x2=clip.w - left_crop)
     else: # Portrait: escalar por ancho, crop vertical
-        clip = clip.resize(width=W)
+        clip = clip.resized(width=W)
         top_crop = (clip.h - H) // 2
         logging.debug(f"Crop vertical: offset {top_crop}, nuevo alto {H}")
-        clip = clip.crop(y1=top_crop, y2=clip.h - top_crop)
+        clip = clip.cropped(y1=top_crop, y2=clip.h - top_crop)
    
     logging.debug(f"Tamaño final: {clip.w}x{clip.h}")
     return clip
@@ -83,42 +83,44 @@ def main():
 
     tmdb_id = sel.get("tmdb_id")
     title = sel.get("titulo")
-    slug = slugify(title)  # Ajustado para llamar correctamente
+    slug = slugify(title)
 
     poster_path = ROOT / man.get("poster", "")
-    video_clips = [ROOT / p for p in man.get("video_clips", []) if (ROOT / p).exists()]
+    video_clips_paths = [ROOT / p for p in man.get("video_clips", []) if (ROOT / p).exists()]
 
-    if not video_clips:
+    if not video_clips_paths:
         logging.error("No hay clips de video disponibles.")
         return None
 
-    # Llamar a narración separada para ahorrar recursos
     narracion, voice_path = separate_narration.main()
     if not voice_path or not os.path.exists(voice_path):
         logging.error("No se pudo obtener narración.")
         return None
 
-    # Crear tmpdir de forma segura y centralizada
     tmp_base = ROOT / 'temp'
     tmp_base.mkdir(exist_ok=True)
     tmp_dir = Path(tempfile.mkdtemp(dir=tmp_base, prefix=f"build_{tmdb_id}_"))
 
+    # --- INICIO DE CAMBIOS ---
+    # Lista para mantener los clips de video abiertos
+    opened_video_clips = []
+    
     try:
-        # Intro con póster
         intro_clip = clip_from_img(poster_path, INTRO_DURATION)
         if intro_clip is None:
             logging.error("Fallo en intro clip.")
             return None
 
-        # Clips de video (redimensionados)
         video_clips_resized = []
-        is_high_res = man.get("trailer_resolution", "").startswith("alta") or "2160" in man.get("trailer_resolution", "")
-        for clip_path in video_clips[:MAX_BACKDROPS]:
+        for clip_path in video_clips_paths[:MAX_BACKDROPS]:
             try:
-                clip = VideoFileClip(str(clip_path)).subclip(0, CLIP_DURATION)
-                resized_clip = resize_to_9_16(clip)
+                # Eliminamos el 'with' para mantener el clip abierto
+                clip = VideoFileClip(str(clip_path))
+                opened_video_clips.append(clip) # Guardamos el clip para cerrarlo después
+                
+                sub_clip = clip.subclipped(0, CLIP_DURATION)
+                resized_clip = resize_to_9_16(sub_clip)
                 video_clips_resized.append(resized_clip)
-                clip.close()
             except Exception as e:
                 logging.warning(f"Fallo en clip {clip_path}: {e}")
 
@@ -126,40 +128,36 @@ def main():
             logging.error("No se pudieron procesar clips de video.")
             return None
 
-        # Concatenar video
         final_video = concatenate_videoclips([intro_clip] + video_clips_resized, method="compose")
 
-        # Audio: Narración + música opcional
         audio_clip = AudioFileClip(str(voice_path))
         final_audio = audio_clip
 
-        # Música de fondo aleatoria (opcional)
         music_dir = ROOT / "assets" / "music"
         if music_dir.exists() and list(music_dir.glob("*.mp3")):
             music_files = list(music_dir.glob("*.mp3"))
             if music_files:
                 music_path = random.choice(music_files)
-                logging.debug(f"Archivo de música seleccionado: {music_path.name}")
                 try:
                     music_clip = AudioFileClip(str(music_path))
-                    logging.debug(f"Música cargada: duración original {music_clip.duration}s")
                     
                     if music_clip.duration < final_video.duration:
                         repeats = int(final_video.duration / music_clip.duration) + 1
-                        music_clip = concatenate_audioclips([music_clip] * repeats).subclip(0, final_video.duration)
-                    else:
-                        music_clip = music_clip.subclip(0, final_video.duration)  
-                    logging.debug(f"Música ajustada a {final_video.duration}s")
+                        music_clip = concatenate_audioclips([music_clip] * repeats)
                     
-                    # Normalize audio and music
-                    audio_clip = audio_clip.fx(afx.audio_normalize)
-                    music_clip = music_clip.fx(afx.audio_normalize).fx(afx.audio_fadein, 1.0).fx(afx.audio_fadeout, 1.0).fx(afx.volumex, 0.10)
+                    music_clip = music_clip.subclipped(0, final_video.duration)
+                    
+                    audio_clip = audio_clip.with_effects([afx.AudioNormalize()])
+                    music_clip = music_clip.with_effects([
+                        afx.AudioNormalize(),
+                        afx.AudioFadeIn(1.0),
+                        afx.AudioFadeOut(1.0),
+                        afx.MultiplyVolume(0.10)
+                    ])
                     final_audio = CompositeAudioClip([audio_clip, music_clip])
-                    logging.debug(f"Mezcla de audio completada: duración {final_audio.duration}s")
                     
                     if final_audio.duration > final_video.duration:
-                        final_audio = final_audio.subclip(0, final_video.duration)  
-                        logging.info(f"Audio final recortado a {final_video.duration}s para fit exacto.")
+                        final_audio = final_audio.subclipped(0, final_video.duration)
                     
                     logging.info(f"Música de fondo aleatoria añadida desde {music_path.name}.")
                 except Exception as e:
@@ -171,10 +169,8 @@ def main():
             silence_duration = final_video.duration - final_audio.duration
             silence_clip = AudioClip(lambda t: 0, duration=silence_duration, fps=final_audio.fps)
             final_audio = concatenate_audioclips([final_audio, silence_clip])
-            logging.debug(f"Audio extendido con silencio a {final_video.duration}s")
         
-        final_clip = final_video.set_audio(final_audio)
-        logging.debug(f"Audio final aplicado al video: duración {final_clip.duration}s")
+        final_clip = final_video.with_audio(final_audio)
 
         out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
         final_clip.write_videofile(
@@ -185,32 +181,33 @@ def main():
         )
         logging.info(f"🎬 Short generado en: {out_file}")
 
-        # Cerrar clips para liberar memoria
         intro_clip.close()
-        for rc in video_clips_resized:
-            rc.close()
         final_clip.close()
         final_audio.close()
+        
+        # Cerramos los clips de video que mantuvimos abiertos
+        for clip in opened_video_clips:
+            clip.close()
 
         return str(out_file)
 
     except Exception as e:
         logging.error(f"Error en build_short: {e}")
+        # Cerramos cualquier clip que haya quedado abierto en caso de error
+        for clip in opened_video_clips:
+            clip.close()
         return None
 
     finally:
-        # Cleanup temporal al final, después de liberar memorias
         cleanup_temp_files(tmp_dir)
 
 def cleanup_temp_files(tmpdir):
-    """Limpia archivos temporales específicos del directorio temporal."""
     time.sleep(2)
     for file in os.listdir(tmpdir):
         file_path = os.path.join(tmpdir, file)
         if os.path.isfile(file_path):
             try:
                 os.remove(file_path)
-                logging.debug(f"Archivo temporal {file} eliminado de {tmpdir}.")
             except PermissionError as e:
                 logging.warning(f"No se pudo eliminar {file} por bloqueo en {tmpdir}: {e}")
     logging.info(f"Archivos temporales en {tmpdir} eliminados (o intentados).")

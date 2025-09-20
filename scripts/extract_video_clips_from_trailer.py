@@ -10,7 +10,7 @@ import re
 import time
 import subprocess
 # Correcto
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 from PIL import Image
 import imagehash
 import numpy as np

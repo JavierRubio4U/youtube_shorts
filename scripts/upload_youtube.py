@@ -9,11 +9,13 @@ from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
-# Correcto
-from moviepy.editor import VideoFileClip
-from PIL import Image, ImageStat  # Para chequeos y resize (ImageStat para brillo)
+# CAMBIO: Import directo
+from moviepy import VideoFileClip
+from PIL import Image, ImageStat
 import logging
-import numpy as np  # Si usas fromarray en extract_frame
+import numpy as np
+
+# ... (el resto del archivo es correcto y no necesita cambios)
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
