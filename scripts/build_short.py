@@ -11,9 +11,9 @@ import separate_narration  # Nuevo script para narración separada
 import tempfile
 import shutil
 from slugify import slugify
-# CAMBIO: Imports directos desde moviepy, no moviepy.editor
+# Imports de moviepy
 from moviepy import (VideoFileClip, ImageClip, AudioFileClip, AudioClip,
-                     CompositeVideoClip, CompositeAudioClip,
+                     CompositeVideoClip, ColorClip, # ColorClip es necesario para el fondo
                      concatenate_videoclips, concatenate_audioclips)
 import moviepy.audio.fx as afx
 
@@ -26,52 +26,59 @@ MANIFEST = STATE / "assets_manifest.json"
 SEL_FILE = STATE / "next_release.json"
 
 W, H = 1080, 1920  # Ancho y alto para formato vertical 9:16
+# CAMBIO: Añadida la constante para el tamaño del cuadrado
+SQUARE_SIZE = 1080 # El tamaño del cuadrado que queremos (1080x1080)
 INTRO_DURATION = 4  # Duración de la intro con la imagen
 CLIP_DURATION = 6  # Duración de los clips de video
-MAX_BACKDROPS = 4  # Máximo de clips (ajustado a 4 para consistencia con trailer)
-HASH_SIMILARITY_THRESHOLD = 5  # Umbral de distancia Hamming
+MAX_BACKDROPS = 4  # Máximo de clips
 
 def clip_from_img(path: Path, dur: float) -> ImageClip:
     """Crea un clip de video a partir de una imagen con duración dada."""
     try:
+        # Esta función mantiene el recorte que llena la pantalla para el póster inicial
         img_clip = ImageClip(str(path), duration=dur)
         img_w, img_h = img_clip.size
         target_ratio = W / H
         current_ratio = img_w / img_h
         if current_ratio > target_ratio:
-            # Landscape: Escalar por alto, crop lateral
             img_clip = img_clip.resized(height=H)
             left_crop = (img_clip.w - W) // 2
             img_clip = img_clip.cropped(x1=left_crop, x2=img_clip.w - left_crop)
         else:
-            # Portrait: Escalar por ancho, crop vertical
             img_clip = img_clip.resized(width=W)
             top_crop = (img_clip.h - H) // 2
-            # CORRECCIÓN: Usar img_clip.h en lugar de clip.h
             img_clip = img_clip.cropped(y1=top_crop, y2=img_clip.h - top_crop)
         return img_clip
     except Exception as e:
         logging.error(f"Error al cargar imagen {path}: {e}")
         return None
 
-def resize_to_9_16(clip):
-    logging.debug(f"Redimensionando clip: tamaño original {clip.w}x{clip.h}, ratio {clip.w / clip.h}")
-    target_ratio = 9 / 16
-    current_ratio = clip.w / clip.h
-   
-    if current_ratio > target_ratio: # Landscape: escalar por alto, crop lateral
-        clip = clip.resized(height=H)
-        left_crop = (clip.w - W) // 2
-        logging.debug(f"Crop lateral: offset {left_crop}, nuevo ancho {W}")
-        clip = clip.cropped(x1=left_crop, x2=clip.w - left_crop)
-    else: # Portrait: escalar por ancho, crop vertical
-        clip = clip.resized(width=W)
-        top_crop = (clip.h - H) // 2
-        logging.debug(f"Crop vertical: offset {top_crop}, nuevo alto {H}")
-        clip = clip.cropped(y1=top_crop, y2=clip.h - top_crop)
-   
-    logging.debug(f"Tamaño final: {clip.w}x{clip.h}")
-    return clip
+# CAMBIO: Función de redimensionado reemplazada por la lógica de recorte cuadrado
+def resize_to_9_16(clip: VideoFileClip) -> CompositeVideoClip:
+    """
+    Recorta el centro del clip a un formato cuadrado (1080x1080) y lo coloca
+    en un fondo vertical 9:16 con bandas negras.
+    """
+    logging.info(f"Dimensiones originales del clip: {clip.size[0]}x{clip.size[1]}")
+
+    # Paso 1: Recortar el centro del clip original a una proporción cuadrada.
+    square_clip = clip.cropped(x_center=clip.w / 2, width=SQUARE_SIZE)
+    logging.debug(f"Dimensiones tras recortar a cuadrado de {SQUARE_SIZE}px de ancho: {square_clip.size[0]}x{square_clip.size[1]}")
+
+    if square_clip.h > SQUARE_SIZE:
+        square_clip = square_clip.cropped(y_center=square_clip.h / 2, height=SQUARE_SIZE)
+        logging.debug(f"Dimensiones tras recortar altura a {SQUARE_SIZE}px: {square_clip.size[0]}x{square_clip.size[1]}")
+
+    # Paso 2: Crear el fondo negro vertical final.
+    background = ColorClip(size=(W, H), color=(0, 0, 0), duration=clip.duration)
+
+    # Paso 3: Colocar el clip cuadrado (que ya es 1080x1080) en el centro del fondo.
+    final_clip = CompositeVideoClip([
+        background,
+        square_clip.with_position("center")
+    ])
+
+    return final_clip
 
 def main():
     if not SEL_FILE.exists() or not MANIFEST.exists():
@@ -101,8 +108,6 @@ def main():
     tmp_base.mkdir(exist_ok=True)
     tmp_dir = Path(tempfile.mkdtemp(dir=tmp_base, prefix=f"build_{tmdb_id}_"))
 
-    # --- INICIO DE CAMBIOS ---
-    # Lista para mantener los clips de video abiertos
     opened_video_clips = []
     
     try:
@@ -114,11 +119,11 @@ def main():
         video_clips_resized = []
         for clip_path in video_clips_paths[:MAX_BACKDROPS]:
             try:
-                # Eliminamos el 'with' para mantener el clip abierto
                 clip = VideoFileClip(str(clip_path))
-                opened_video_clips.append(clip) # Guardamos el clip para cerrarlo después
+                opened_video_clips.append(clip)
                 
                 sub_clip = clip.subclipped(0, CLIP_DURATION)
+                # Esta llamada ahora usa la nueva lógica de recorte cuadrado
                 resized_clip = resize_to_9_16(sub_clip)
                 video_clips_resized.append(resized_clip)
             except Exception as e:
@@ -185,15 +190,13 @@ def main():
         final_clip.close()
         final_audio.close()
         
-        # Cerramos los clips de video que mantuvimos abiertos
         for clip in opened_video_clips:
             clip.close()
 
         return str(out_file)
 
     except Exception as e:
-        logging.error(f"Error en build_short: {e}")
-        # Cerramos cualquier clip que haya quedado abierto en caso de error
+        logging.error(f"Error en build_short: {e}", exc_info=True)
         for clip in opened_video_clips:
             clip.close()
         return None

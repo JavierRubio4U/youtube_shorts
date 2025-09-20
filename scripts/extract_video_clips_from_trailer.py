@@ -26,6 +26,8 @@ CLIP_INTERVAL = 5
 CLIP_DURATION = 6
 MAX_CLIPS = 4
 SKIP_INITIAL_CLIPS = 2
+SKIP_FINAL_CLIPS = 2  # Nueva variable para saltar los últimos clips
+
 HASH_SIMILARITY_THRESHOLD = 5
 
 def slugify(text: str, maxlen: int = 60) -> str:
@@ -34,9 +36,6 @@ def slugify(text: str, maxlen: int = 60) -> str:
     s = re.sub(r"[^\w\s-]", "", s)
     s = re.sub(r"[\s_-]+", "-", s).strip("-")
     return (s or "title")[:maxlen]
-
-# CAMBIO: La función ahora guarda el tráiler en la carpeta de assets
-# Reemplaza esta función en scripts/extract_video_clips_from_trailer.py
 
 def download_trailer(url, tmdb_id, slug):
     """Descarga el tráiler directamente a la carpeta assets/video_clips."""
@@ -80,32 +79,47 @@ def download_trailer(url, tmdb_id, slug):
 
     return trailer_path
 
-# CAMBIO: Parámetros de ffmpeg ajustados para alta calidad
-def extract_clips(trailer_path, tmpdir, num_clips=MAX_CLIPS, clip_dur=CLIP_DURATION, interval=CLIP_INTERVAL, skip_initial=SKIP_INITIAL_CLIPS * CLIP_DURATION):
-    """Extrae clips del tráiler usando FFmpeg con alta calidad."""
+def extract_clips(trailer_path, tmpdir, num_clips=MAX_CLIPS * 2, clip_dur=CLIP_DURATION, interval=CLIP_INTERVAL):  # Extraemos más para seleccionar
+    """Extrae clips del tráiler usando FFmpeg con alta calidad, evitando iniciales y finales."""
     clip_paths = []
-    for i in range(num_clips):
-        start_time = skip_initial + i * interval
-        out_path = tmpdir / f"clip_{i+1}.mp4"
-        cmd = [
-            'ffmpeg', '-y', 
-            '-ss', str(start_time),   # Busca el tiempo de inicio (rápido)
-            '-i', str(trailer_path),  # Archivo de entrada
-            '-t', str(clip_dur),      # Duración del clip
-            '-c:v', 'libx264',        # Códec de video H.264
-            '-preset', 'slow',        # Prioriza la calidad sobre la velocidad de codificación
-            '-crf', '18',             # Factor de calidad (18 es considerado visualmente sin pérdidas)
-            '-an', str(out_path)      # Sin pista de audio
-        ]
-        try:
-            # Usamos DEVNULL para no llenar la consola con la salida de ffmpeg
-            subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if out_path.exists() and out_path.stat().st_size > 50000: # Chequeo de tamaño mínimo
-                clip_paths.append(out_path)
-            else:
-                logging.warning(f"Clip {i+1} no generado o es demasiado pequeño.")
-        except Exception as e:
-            logging.error(f"Fallo al extraer clip {i+1} con FFmpeg: {e}")
+    try:
+        with VideoFileClip(str(trailer_path)) as trailer_clip:
+            duration = trailer_clip.duration
+            skip_initial = SKIP_INITIAL_CLIPS * clip_dur
+            skip_final = SKIP_FINAL_CLIPS * clip_dur
+            effective_duration = duration - skip_initial - skip_final
+            if effective_duration <= 0:
+                logging.error("Duración efectiva del tráiler demasiado corta después de skips.")
+                return []
+            
+            # Ajustar intervalo para cubrir el centro con más clips
+            adjusted_interval = max(1, effective_duration / (num_clips - 1)) if num_clips > 1 else 0
+            
+            for i in range(num_clips):
+                start_time = skip_initial + i * adjusted_interval
+                if start_time + clip_dur > duration - skip_final:
+                    break  # No extraer si se solapa con el skip final
+                out_path = tmpdir / f"clip_{i+1}.mp4"
+                cmd = [
+                    'ffmpeg', '-y', 
+                    '-ss', str(start_time),   # Busca el tiempo de inicio (rápido)
+                    '-i', str(trailer_path),  # Archivo de entrada
+                    '-t', str(clip_dur),      # Duración del clip
+                    '-c:v', 'libx264',        # Códec de video H.264
+                    '-preset', 'slow',        # Prioriza la calidad sobre la velocidad de codificación
+                    '-crf', '18',             # Factor de calidad (18 es considerado visualmente sin pérdidas)
+                    '-an', str(out_path)      # Sin pista de audio
+                ]
+                try:
+                    subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if out_path.exists() and out_path.stat().st_size > 50000: # Chequeo de tamaño mínimo
+                        clip_paths.append(out_path)
+                    else:
+                        logging.warning(f"Clip {i+1} no generado o es demasiado pequeño.")
+                except Exception as e:
+                    logging.error(f"Fallo al extraer clip {i+1} con FFmpeg: {e}")
+    except Exception as e:
+        logging.error(f"Error al obtener duración del tráiler: {e}")
     return clip_paths
 
 def select_best_clips(clip_paths):
