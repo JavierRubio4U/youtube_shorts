@@ -14,7 +14,7 @@ from slugify import slugify
 # Imports de moviepy
 from moviepy import (VideoFileClip, ImageClip, AudioFileClip, AudioClip,
                      CompositeVideoClip, ColorClip, # ColorClip es necesario para el fondo
-                     concatenate_videoclips, concatenate_audioclips)
+                     CompositeAudioClip, concatenate_videoclips, concatenate_audioclips)
 import moviepy.audio.fx as afx
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')

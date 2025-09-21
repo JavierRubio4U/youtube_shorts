@@ -196,7 +196,7 @@ def enrich_movie(mid):
 
 if __name__ == "__main__":
     movies = get_week_releases_enriched()
-    print("🎬 Estrenos disponibles (ordenados por HYPE):\n")
+    print("🎬 Estrenos disponibles (ordenados por popularity):\n")
     if movies:
         for m in movies:
             print(f"- {m['titulo']} ({m['fecha_estreno']})  ⭐{m['vote_average']}  👍{m['vote_count']}  🔥{m['popularity']:.1f}  HYPE={m['hype']}")

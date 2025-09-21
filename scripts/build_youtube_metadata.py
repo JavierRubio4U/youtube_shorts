@@ -31,22 +31,13 @@ def _is_latin_text(text: str) -> bool:
         return False
     return all('a' <= c.lower() <= 'z' or c.isdigit() or c in 'áéíóúüñÁÉÍÓÚÜÑ\s\:\-\!\?\.,\'"' for c in text)
 
-def _translate_with_ai(text: str, title: str, model='jobautomation/OpenEuroLLM-Spanish') -> str | None:
+def _translate_with_ai(text: str, title: str, model='mistral') -> str | None:
     """Traduce un texto usando un modelo local de Ollama."""
     try:
-        # Saltar traducción si ya es español o contiene números (mantener como está)
         if detect(title) == 'es' or re.search(r'\d', title):
-            logging.info(f"Título '{title}' ya es adecuado (español o con número); manteniendo original.")
+            logging.info(f"Título '{title}' ya es adecuado; manteniendo original.")
             return title
         
-        # Nueva: Buscar título oficial en español para verificar si es nombre propio
-        search_query = f"título película en español {title}"
-        # Aquí iría la llamada a web_search, pero como es código, simular o integrar tool
-        # Por ejemplo, resultados = web_search(search_query, num_results=5)
-        # Parsear resultados para extraer título común (ej. el más frecuente)
-        # Para este ejemplo, asumir que obtienes 'Los Pitufos' para 'Pitufos'
-        # En código real, implementar parseo de resultados
-
         prompt = f"""Si el siguiente título es un nombre propio de franquicia o película popular, no lo traduzcas y mantén el original. De lo contrario, tradúcelo al español de forma natural, sin añadir ninguna explicación adicional. Título: {text}"""
         response = ollama.chat(model=model, messages=[
             {'role': 'user', 'content': prompt}
@@ -55,7 +46,7 @@ def _translate_with_ai(text: str, title: str, model='jobautomation/OpenEuroLLM-S
         translated_text = re.sub(r'\s*\([^)]*\)|\n.*', '', translated_text).strip()
         return translated_text
     except Exception as e:
-        print(f"❌ Error al traducir el título con Ollama: {e}")
+        logging.error(f"❌ Error al traducir el título con Ollama: {e}")
         return None
 
 def _shorten(text: str, max_len: int) -> str:
@@ -71,30 +62,34 @@ def _shorten(text: str, max_len: int) -> str:
     return text
 
 def _format_date(release_date: str) -> str:
-    """Formatea YYYY-MM-DD a DD/MM/YY."""
     if not release_date:
         return ""
     try:
         dt = datetime.strptime(release_date, "%Y-%m-%d")
         return dt.strftime("%d/%m/%y")
     except ValueError:
-        return release_date  # Fallback si formato inválido
+        return release_date
 
-def _make_title(titulo: str, fecha: str, platforms: list[str]) -> str:
+def _make_title(titulo: str, fecha: str, plataformas: list[str]) -> str:
     formatted_date = _format_date(fecha)
-    platform_str = " - " + " / ".join(platforms) if platforms else ""  # Une múltiples con /
-    base = f"{titulo}{platform_str} - {formatted_date}".strip()
-    return _shorten(base, 60)
+    # Si hay plataformas, las unimos en una cadena
+    plataforma_str = ", ".join(plataformas)
+    if plataforma_str:
+        base = f"{titulo} — {plataforma_str} {formatted_date}".strip()
+    else:
+        # Si no hay plataforma, mantenemos el formato original
+        base = f"{titulo} — {formatted_date}".strip()
+    return _shorten(base, 90)
 
 def _make_tags(generos, reparto_top, max_cast=3):
-    tags = []
+    tags = ["pelicula", "cine","shorts"]
     for g in (generos or []):
         g = g.strip()
-        if g and g not in tags:
+        if g and g.lower() not in [t.lower() for t in tags]:
             tags.append(g)
     for name in (reparto_top or [])[:max_cast]:
         name = name.strip()
-        if name and name not in tags:
+        if name and name.lower() not in [t.lower() for t in tags]:
             tags.append(name)
     total = 0
     kept = []
@@ -125,18 +120,18 @@ def main():
     
     try:
         if not _is_latin_text(titulo) or detect(titulo) != "es":
-            print(f"🌐 Traduciendo título '{titulo}' a español...")
+            logging.info(f"🌐 Traduciendo título '{titulo}' a español...")
             translated_title = _translate_with_ai(titulo, titulo)
             if translated_title and translated_title.strip() and translated_title != titulo:
                 titulo = translated_title
                 sel["titulo"] = titulo
-                print(f"✅ Título traducido: {titulo}")
+                logging.info(f"✅ Título traducido: {titulo}")
             else:
-                print(f"⚠ Traducción no válida o no necesaria, manteniendo título original: {titulo}")
+                logging.warning(f"⚠ Traducción no válida o no necesaria, manteniendo título original: {titulo}")
         else:
-            print(f"✅ Título ya en español: {titulo}")
+            logging.info(f"✅ Título ya en español: {titulo}")
     except Exception as e:
-        print(f"⚠ Fallo en la detección o traducción del título: {e}, manteniendo título original: {titulo}")
+        logging.warning(f"⚠ Fallo en la detección o traducción del título: {e}, manteniendo título original: {titulo}")
 
     fecha_es = sel.get("fecha_estreno") or ""
     generos = sel.get("generos") or []
@@ -147,14 +142,15 @@ def main():
     sinopsis = sel.get("sinopsis") or ""
     trailer = man.get("trailer_url") or sel.get("trailer_url")
     certificacion = sel.get("certificacion_ES")
-    platforms = sel.get("platforms", [])  # Nuevo: Usar el campo platforms de next_release.json
+    platforms = sel.get('platforms')
 
     title = _make_title(titulo, fecha_es, platforms)
+    
     tags = _make_tags(generos, reparto, max_cast=3)
     made_for_kids = _is_made_for_kids(certificacion, generos)
 
     lines = []
-    lines.append(title)  # Título con plataformas incluidas
+    lines.append(title)
     if generos:
         lines.append("Género: " + ", ".join(generos))
     if reparto:
@@ -164,8 +160,6 @@ def main():
     if vote_avg is not None:    metrics.append(f"TMDb: {vote_avg} ({vote_count or 0} votos)")
     if metrics:
         lines.append(" | ".join(metrics))
-    if platforms:  # Nuevo: Añadir plataformas en descripción
-        lines.append(f"Disponible en: {', '.join(platforms)}")
     if sinopsis:
         lines.append("")
         lines.append("Sinopsis:")
@@ -176,12 +170,13 @@ def main():
 
     lines.append("")
     lines.append("Créditos de datos e imágenes: The Movie Database (TMDb)")
+    lines.append("Voz sintética: Coqui TTS (modelo xtts_v2)")
 
     description = "\n".join(lines)
-
+    
     payload = {
         "tmdb_id": sel["tmdb_id"],
-        "title": title,
+        "title": title,  # El título ya no tiene #shorts
         "description": description,
         "tags": tags,
         "default_visibility": "public",
@@ -192,7 +187,7 @@ def main():
 
     YT_META.parent.mkdir(parents=True, exist_ok=True)
     YT_META.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("✅ YouTube metadata generado en:", YT_META)
+    logging.info(f"✅ YouTube metadata generado en: {YT_META}")
 
 if __name__ == "__main__":
     main()

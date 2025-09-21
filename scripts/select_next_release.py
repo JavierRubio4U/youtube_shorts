@@ -76,6 +76,9 @@ def find_best_hype_trailer(title: str, year: str, min_height=1080) -> str | None
 
     valid_candidates = []
 
+    # Lista de palabras clave a evitar en los títulos de los vídeos
+    unwanted_keywords = ['clip', 'escena', 'featurette', 'review', 'análisis', 'subtítulos', 'sub', 'subs']
+
     for query in search_queries:
         logging.info(f"Buscando en YouTube: '{query}'")
         ydl_opts = {
@@ -97,8 +100,9 @@ def find_best_hype_trailer(title: str, year: str, min_height=1080) -> str | None
                     video_title = entry.get('title', '').lower()
                     view_count = entry.get('view_count', 0)
 
-                    # Filtro básico para evitar clips y análisis
-                    if any(keyword in video_title for keyword in ['clip', 'escena', 'featurette', 'review', 'análisis']):
+                    # Filtro para evitar clips, análisis y vídeos con subtítulos
+                    if any(keyword in video_title for keyword in unwanted_keywords):
+                        logging.info(f"    ✗ Descartado por contener palabra clave no deseada: '{video_title}'")
                         continue
 
                     logging.info(f"  > Verificando calidad de: {video_url}")
@@ -131,10 +135,18 @@ def pick_next():
 
     # Ordenar por hype y filtrar excluidos
     candidates = [m for m in movies if m["id"] not in exclude]
-    logging.info(f"Top candidatos por hype: {len(candidates)}")
-    for i, m in enumerate(candidates[:6]):
-        platforms_str = ', '.join(m.get('platforms', [])) or 'No especificado'
-        logging.info(f"📋 Candidato {i+1}: {m['titulo']} (ID: {m['id']}, hype: {m['hype']}, platforms: {platforms_str})")
+    logging.info(f"Top candidatos por popularity: {len(candidates)}")
+    
+    # --> AÑADIR ESTE FRAGMENTO DE CÓDIGO AQUÍ <--
+    for m in candidates[:5]: # Puedes limitar la cantidad a mostrar para no saturar
+        print(f"\n- {m['titulo']} ({m['fecha_estreno']})  ⭐{m['vote_average']}  👍{m['vote_count']}  🔥{m['popularity']:.1f}  HYPE={m['hype']:.2f}")
+        print(f"  Trailer: {m['trailer']}")
+        print(f"  Poster:  {m['poster_principal']}")
+        print(f"  Backdrops[{len(m['backdrops'])}]: {', '.join(m['backdrops'][:3])}...")
+        print(f"  Cert_ES: {m['certificacion_ES']}  Providers ES: {m['providers_ES']}")
+        print(f"  Platforms: {', '.join(m['platforms'])}")
+    print("\n--- Buscando tráiler viable... ---\n")
+    # ---------------------------------------->
 
     selected_movie = None
     final_trailer_url = None
