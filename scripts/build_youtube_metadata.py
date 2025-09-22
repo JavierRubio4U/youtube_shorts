@@ -155,11 +155,6 @@ def main():
         lines.append("Género: " + ", ".join(generos))
     if reparto:
         lines.append("Reparto: " + ", ".join(reparto[:5]))
-    metrics = []
-    if hype is not None:        metrics.append(f"Hype: {hype}")
-    if vote_avg is not None:    metrics.append(f"TMDb: {vote_avg} ({vote_count or 0} votos)")
-    if metrics:
-        lines.append(" | ".join(metrics))
     if sinopsis:
         lines.append("")
         lines.append("Sinopsis:")
@@ -169,8 +164,7 @@ def main():
         lines.append(f"Tráiler oficial: {trailer}")
 
     lines.append("")
-    lines.append("Créditos de datos e imágenes: The Movie Database (TMDb)")
-    lines.append("Voz sintética: Coqui TTS (modelo xtts_v2)")
+    lines.append("Créditos de datos y poster: The Movie Database (TMDb)")
 
     description = "\n".join(lines)
     

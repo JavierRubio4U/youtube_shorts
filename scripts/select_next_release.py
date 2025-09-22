@@ -63,6 +63,7 @@ def has_high_quality_format(trailer_url: str, min_height=1080) -> bool:
         return False
 
 # --- FUNCIÓN DE BÚSQUEDA MEJORADA ---
+# --- FUNCIÓN DE BÚSQUEDA MEJORADA Y OPTIMIZADA ---
 def find_best_hype_trailer(title: str, year: str, min_height=1080) -> str | None:
     """
     Busca en YouTube el tráiler más relevante, valida su calidad real y devuelve el mejor.
@@ -70,8 +71,10 @@ def find_best_hype_trailer(title: str, year: str, min_height=1080) -> str | None
     # Consultas de búsqueda más variadas y efectivas
     search_queries = [
         f'"{title}" ({year}) trailer oficial',
-        f'"{title}" official trailer',
-        f'"{title}" trailer'
+        f'"{title}" official trailer ({year})',
+        f'"{title}" film trailer {year}',
+        f'"{title}" movie trailer {year}',
+        f'"{title}" ({year}) trailer'
     ]
 
     valid_candidates = []
@@ -125,6 +128,10 @@ def find_best_hype_trailer(title: str, year: str, min_height=1080) -> str | None
     logging.info(f"✅ Mejor tráiler encontrado y verificado para '{title}': {best_trailer['url']} ({best_trailer['views']} vistas)")
     return best_trailer['url']
 
+# scripts/select_next_release.py
+
+# ... (código anterior) ...
+
 def pick_next():
     state = _load_state()
     exclude = set(state.get("published_ids", []) + state.get("picked_ids", []))
@@ -133,50 +140,73 @@ def pick_next():
     movies = get_week_releases_enriched()
     logging.info(f"Candidatos totales: {len(movies)}")
 
-    # Ordenar por hype y filtrar excluidos
-    candidates = [m for m in movies if m["id"] not in exclude]
-    logging.info(f"Top candidatos por popularity: {len(candidates)}")
+    # Ordenar por hype y filtrar excluidos, asegurando la existencia de poster
+    candidates_with_poster = [m for m in movies if m["id"] not in exclude and m["poster_principal"]]
     
-    # --> AÑADIR ESTE FRAGMENTO DE CÓDIGO AQUÍ <--
-    for m in candidates[:5]: # Puedes limitar la cantidad a mostrar para no saturar
+    # Tomar los 6 candidatos más populares para el análisis
+    top_candidates = candidates_with_poster[:6]
+    logging.info(f"Analizando los {len(top_candidates)} candidatos principales...")
+
+    # Imprimir la lista de los 6 candidatos para depuración
+    for m in top_candidates:
         print(f"\n- {m['titulo']} ({m['fecha_estreno']})  ⭐{m['vote_average']}  👍{m['vote_count']}  🔥{m['popularity']:.1f}  HYPE={m['hype']:.2f}")
         print(f"  Trailer: {m['trailer']}")
         print(f"  Poster:  {m['poster_principal']}")
-        print(f"  Backdrops[{len(m['backdrops'])}]: {', '.join(m['backdrops'][:3])}...")
-        print(f"  Cert_ES: {m['certificacion_ES']}  Providers ES: {m['providers_ES']}")
-        print(f"  Platforms: {', '.join(m['platforms'])}")
-    print("\n--- Buscando tráiler viable... ---\n")
-    # ---------------------------------------->
+        print(f"  Cert_ES: {m['certificacion_ES']}  Platforms: {', '.join(m['platforms'])}")
+        print(f"  Géneros: {', '.join(m['generos'])}") # Nuevo: mostrar géneros
 
     selected_movie = None
     final_trailer_url = None
 
-    for movie in candidates:
-        logging.info(f"\nProbando película: '{movie['titulo']}' (hype: {movie['hype']})...")
-        tmdb_trailer = movie.get("trailer")
-        
-        # 1. Probar el tráiler de TMDB si existe
-        if tmdb_trailer:
-            logging.info(f"  🔍 Verificando tráiler de TMDB: {tmdb_trailer}")
-            if has_high_quality_format(tmdb_trailer, 1080):
-                logging.info(f"    ✓ Tráiler de TMDB es viable.")
+    # LÓGICA DE PRIORIZACIÓN: Buscar película de animación en el top 6
+    for movie in top_candidates:
+        if "Animación" in movie["generos"]:
+            logging.info(f"🎉 Priorizando película de animación: '{movie['titulo']}'")
+            # Probar el tráiler de TMDB si existe y es viable
+            tmdb_trailer = movie.get("trailer")
+            if tmdb_trailer and has_high_quality_format(tmdb_trailer, 1080):
                 selected_movie = movie
                 final_trailer_url = tmdb_trailer
-                break # Película encontrada, salimos del bucle
-        
-        # 2. Si no hay tráiler en TMDB o no es viable, buscar en YouTube
-        if not selected_movie:
-            logging.info(f"   fallback -> Buscando en YouTube...")
+                break
+            
+            # Si no, buscar en YouTube
             year = movie.get("fecha_estreno", "2025").split('-')[0]
             youtube_trailer = find_best_hype_trailer(movie["titulo"], year)
             if youtube_trailer:
                 selected_movie = movie
                 final_trailer_url = youtube_trailer
-                break # Película encontrada, salimos del bucle
-        
-        # Si llegamos aquí, no se encontró tráiler viable para esta película
-        logging.warning(f"  ✗ No se encontró tráiler viable para '{movie['titulo']}'. Pasando al siguiente.")
+                break
+            
+    # LÓGICA NORMAL: Si no se encontró una película de animación viable, continuar con la búsqueda normal
+    if not selected_movie:
+        logging.info("ℹ️ No se encontró una película de animación viable en el top 6. Buscando el mejor candidato disponible...")
+        for movie in top_candidates:
+            logging.info(f"\nProbando película: '{movie['titulo']}' (hype: {movie['hype']})...")
+            tmdb_trailer = movie.get("trailer")
+            
+            # 1. Probar el tráiler de TMDB si existe
+            if tmdb_trailer:
+                logging.info(f"  🔍 Verificando tráiler de TMDB: {tmdb_trailer}")
+                if has_high_quality_format(tmdb_trailer, 1080):
+                    logging.info(f"    ✓ Tráiler de TMDB es viable.")
+                    selected_movie = movie
+                    final_trailer_url = tmdb_trailer
+                    break # Película encontrada, salimos del bucle
+            
+            # 2. Si no hay tráiler en TMDB o no es viable, buscar en YouTube
+            if not selected_movie:
+                logging.info(f"   fallback -> Buscando en YouTube...")
+                year = movie.get("fecha_estreno", "2025").split('-')[0]
+                youtube_trailer = find_best_hype_trailer(movie["titulo"], year)
+                if youtube_trailer:
+                    selected_movie = movie
+                    final_trailer_url = youtube_trailer
+                    break # Película encontrada, salimos del bucle
+            
+            # Si llegamos aquí, no se encontró tráiler viable para esta película
+            logging.warning(f"  ✗ No se encontró tráiler viable para '{movie['titulo']}'. Pasando al siguiente.")
 
+    # ... (resto del código para guardar el payload) ...
     if not selected_movie:
         print("🛑 No se encontraron películas con tráiler viable (>=1080p) entre los candidatos.")
         logging.error("Proceso detenido: no hay candidatos viables.")
