@@ -44,20 +44,36 @@ def download_trailer(url, tmdb_id, slug):
     
     ydl_opts = {
         'outtmpl': str(trailer_path_template),
-        # CAMBIO: Selector de formato mejorado para forzar alta calidad y fusión
-        'format': 'bestvideo[height>=1080]+bestaudio/bestvideo+bestaudio/best',
+        'format': 'bestvideo[height>=1080][vcodec^=avc1]+bestaudio/best',  # Cambio: Prefiere AVC para evitar 403 premium
         'merge_output_format': 'mp4',
         'no_playlist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'logger': logging.getLogger('yt_dlp_silent') # Logger silencioso
+        'quiet': False,  # Cambio: No quiet para logs verbose en depuración
+        'verbose': True,  # Cambio: Verbose para ver detalles de descarga
+        'no_warnings': True,  # Cambio: Suprime warnings
+        'extractor_args': {'youtube': {'player_client': 'web,android'}},  # Cambio: Evita iOS para formatos libres
+        'forceipv4': True,  # Cambio: Fuerza IPv4 para estabilidad
+        'retries': 3,  # Cambio: Reintentos para robustez
     }
-
-    # Para evitar que yt-dlp muestre logs en la consola
-    logging.getLogger('yt_dlp_silent').disabled = True
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    print(f"Intentando descargar tráiler desde {url} con opciones actualizadas.")
+    print("Opciones de yt_dlp:", ydl_opts)  # Log adicional para depuración
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            print("Extrayendo información del tráiler...")
+            info = ydl.extract_info(url, download=False)  # Extrae info primero
+            print("Formato seleccionado:", info.get('format_id', 'No encontrado'))  # Log: ID de formato
+            print("Iniciando descarga...")
+            ydl.download([url])
+    except yt_dlp.utils.DownloadError as de:
+        logging.error(f"Error de descarga específico: {de}")
+        raise
+    except Exception as e:
+        logging.error(f"Fallo general en descarga: {e}")
+        import traceback
+        print("Traza del error:")
+        traceback.print_exc()
+        raise
     
     # Busca el archivo descargado
     downloaded_files = list(CLIPS_DIR.glob(f"{tmdb_id}_{slug}_trailer.*"))

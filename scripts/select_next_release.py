@@ -58,6 +58,9 @@ def has_high_quality_format(trailer_url: str, min_height=1080) -> bool:
         'no_warnings': True,
         'simulate': True,
         'logger': SilentLogger(),
+        'extractor_args': {'youtube': {'player_client': 'web,android'}},  # Cambio: Evita clientes que causen 403
+        'forceipv4': True,  # Cambio: Fuerza IPv4 para estabilidad
+        'format': 'bestvideo[height>=1080][vcodec^=avc1]+bestaudio/best',  # Cambio: Prefiere AVC para evitar premium
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -92,6 +95,8 @@ def find_best_hype_trailer(title: str, year: str, min_height=1080) -> str | None
             'logger': SilentLogger(),
             'extract_flat': 'in_playlist',
             'playlistend': 5,
+            'extractor_args': {'youtube': {'player_client': 'web,android'}},  # Cambio: Para mejor extracción
+            'forceipv4': True,  # Cambio: Estabilidad
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -130,14 +135,26 @@ def mark_published(tmdb_id: int, simulate=False):
     if tmdb_id not in state.get("published_ids", []):
         state.setdefault("published_ids", []).append(tmdb_id)
         state["published_ids"] = sorted(set(state["published_ids"]))
-        if tmdb_id not in state.get("picked_ids", []):
-            state.setdefault("picked_ids", []).append(tmdb_id)
-            state["picked_ids"] = state["picked_ids"][-50:]
+        # Eliminamos el ID de la lista de "picked" si se publica correctamente
+        if tmdb_id in state.get("picked_ids", []):
+            state["picked_ids"].remove(tmdb_id)
         if not simulate:
             _save_state(state)
-        logging.info(f"ID {tmdb_id} marcada publicada (y en picked){' (simulado)' if simulate else ''}.")
+        logging.info(f"ID {tmdb_id} marcada publicada (y eliminada de picked){' (simulado)' if simulate else ''}.")
     else:
         logging.info(f"ID {tmdb_id} ya publicada.")
+
+def mark_picked(tmdb_id: int, simulate=False):
+    state = _load_state()
+    if tmdb_id not in state.get("published_ids", []) and tmdb_id not in state.get("picked_ids", []):
+        state.setdefault("picked_ids", []).append(tmdb_id)
+        state["picked_ids"] = state["picked_ids"][-50:]  # Mantener la lista corta
+        if not simulate:
+            _save_state(state)
+        logging.info(f"ID {tmdb_id} marcada como elegida (picked){' (simulado)' if simulate else ''}.")
+    else:
+        logging.info(f"ID {tmdb_id} ya está en picked o publicada.")
+
 
 # --- LÓGICA DE TRENDING DESARROLLADA PREVIAMENTE ---
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "tmdb_api_key.txt")
@@ -302,8 +319,6 @@ def pick_next():
             other_movies.append(movie)
     
     prioritized_list = digital_releases + other_movies
-
-
     
     # 4. Filtrar por fecha de estreno (últimos 4 meses)
     hoy = datetime.now()
@@ -368,6 +383,11 @@ def pick_next():
         print("🛑 No se encontraron películas con tráiler viable (>=1080p) entre los candidatos.")
         logging.error("Proceso detenido: no hay candidatos viables.")
         return None
+
+    # --- LÓGICA AGREGADA: MARCAR COMO 'PICKED' ANTES DE GUARDAR EL NEXT FILE ---
+    # Esto asegura que la película no se vuelva a seleccionar si el proceso falla en un paso posterior.
+    mark_picked(selected_movie["id"])
+    # -------------------------------------------------------------------------
 
     payload = {
         "tmdb_id": selected_movie["id"], "titulo": selected_movie["titulo"],
