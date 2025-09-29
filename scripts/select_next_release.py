@@ -245,7 +245,7 @@ def enrich_movie(mid):
     }
 
 def get_trending_by_type(media_type: str, time_window: str, category: str):
-    logging.info(f"Obteniendo top 10 trending semanal de {media_type} en {category}...")
+    logging.info(f"Obteniendo top 20 trending semanal de {media_type} en {category}...")
     
     results = api_get(f"/trending/{media_type}/{time_window}", {"language": "es-ES"}).get("results", [])
     filtered_results = []
@@ -268,11 +268,11 @@ def get_trending_by_type(media_type: str, time_window: str, category: str):
         if (category == "Cine" and is_cinema) or (category == "Streaming" and is_streaming):
             filtered_results.append(m)
         
-        if len(filtered_results) >= 10:
+        if len(filtered_results) >= 20:
             break
 
     enriched_results = []
-    for m in filtered_results[:10]:
+    for m in filtered_results[:20]:
         enriched = enrich_movie(m["id"])
         if enriched and enriched["poster_principal"]:
             enriched['category'] = category
@@ -338,9 +338,9 @@ def pick_next():
             continue
 
     # === Nuevo código para el log de candidatos ===
-    print("\n📝 Lista de candidatos Top 10:")
+    print("\n📝 Lista de candidatos Top 20:")
     print("----------------------------")
-    for i, movie in enumerate(filtered_trending_movies[:10]):
+    for i, movie in enumerate(filtered_trending_movies[:20]):
         print(f"  {i+1}. {movie['titulo']} ({movie['fecha_estreno']})")
         print(f"     Popularidad: {movie['popularity']:.1f}")
         print(f"     Prioridad: Estreno Digital = {'Sí' if movie.get('fecha_estreno_digital') else 'No'}")

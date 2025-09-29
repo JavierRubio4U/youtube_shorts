@@ -53,26 +53,33 @@ def clip_from_img(path: Path, dur: float) -> ImageClip:
         logging.error(f"Error al cargar imagen {path}: {e}")
         return None
 
-# CAMBIO: Función de redimensionado reemplazada por la lógica de recorte cuadrado
-def resize_to_9_16(clip: VideoFileClip) -> CompositeVideoClip:
+
+def resize_to_9_16(clip: VideoFileClip) -> VideoFileClip:
     """
     Recorta el centro del clip a un formato cuadrado (1080x1080) y lo coloca
     en un fondo vertical 9:16 con bandas negras.
     """
+    # Definimos las dimensiones de un YouTube Short
+    W, H = 1080, 1920
+    SQUARE_SIZE = 1080
+    
     logging.info(f"Dimensiones originales del clip: {clip.size[0]}x{clip.size[1]}")
 
     # Paso 1: Recortar el centro del clip original a una proporción cuadrada.
+    # Para un video de 1920x1080, esto lo dejará en 1080x1080.
     square_clip = clip.cropped(x_center=clip.w / 2, width=SQUARE_SIZE)
-    logging.debug(f"Dimensiones tras recortar a cuadrado de {SQUARE_SIZE}px de ancho: {square_clip.size[0]}x{square_clip.size[1]}")
+    logging.info(f"Dimensiones tras recortar a cuadrado de {SQUARE_SIZE}px de ancho: {square_clip.size[0]}x{square_clip.size[1]}")
 
+    # Si la altura del clip original fuera mayor a 1080, también recortaríamos verticalmente.
     if square_clip.h > SQUARE_SIZE:
         square_clip = square_clip.cropped(y_center=square_clip.h / 2, height=SQUARE_SIZE)
-        logging.debug(f"Dimensiones tras recortar altura a {SQUARE_SIZE}px: {square_clip.size[0]}x{square_clip.size[1]}")
+        logging.info(f"Dimensiones tras recortar altura a {SQUARE_SIZE}px: {square_clip.size[0]}x{square_clip.size[1]}")
 
     # Paso 2: Crear el fondo negro vertical final.
     background = ColorClip(size=(W, H), color=(0, 0, 0), duration=clip.duration)
 
     # Paso 3: Colocar el clip cuadrado (que ya es 1080x1080) en el centro del fondo.
+    # Esto creará las bandas negras superior e inferior automáticamente.
     final_clip = CompositeVideoClip([
         background,
         square_clip.with_position("center")

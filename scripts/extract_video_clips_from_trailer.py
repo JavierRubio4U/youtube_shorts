@@ -47,17 +47,16 @@ def download_trailer(url, tmdb_id, slug):
         'format': 'bestvideo[height>=1080][vcodec^=avc1]+bestaudio/best',  # Cambio: Prefiere AVC para evitar 403 premium
         'merge_output_format': 'mp4',
         'no_playlist': True,
-        'quiet': False,  # Cambio: No quiet para logs verbose en depuración
-        'verbose': True,  # Cambio: Verbose para ver detalles de descarga
+        'quiet': True,  # Cambio: No quiet para logs verbose en depuración
+        'verbose': False,  # Cambio: Verbose para ver detalles de descarga
         'no_warnings': True,  # Cambio: Suprime warnings
         'extractor_args': {'youtube': {'player_client': 'web,android'}},  # Cambio: Evita iOS para formatos libres
         'forceipv4': True,  # Cambio: Fuerza IPv4 para estabilidad
         'retries': 3,  # Cambio: Reintentos para robustez
+        'log_level': 'error', # CAMBIO: Añadido para suprimir logs de descarga
     }
     
-    print(f"Intentando descargar tráiler desde {url} con opciones actualizadas.")
-    print("Opciones de yt_dlp:", ydl_opts)  # Log adicional para depuración
-    
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             print("Extrayendo información del tráiler...")
@@ -95,7 +94,7 @@ def download_trailer(url, tmdb_id, slug):
 
     return trailer_path
 
-def extract_clips(trailer_path, tmpdir, num_clips=MAX_CLIPS * 2, clip_dur=CLIP_DURATION, interval=CLIP_INTERVAL):  # Extraemos más para seleccionar
+def extract_clips(trailer_path, tmpdir, num_clips=MAX_CLIPS * 2, clip_dur=CLIP_DURATION, interval=CLIP_INTERVAL):
     """Extrae clips del tráiler usando FFmpeg con alta calidad, evitando iniciales y finales."""
     clip_paths = []
     try:
@@ -121,6 +120,8 @@ def extract_clips(trailer_path, tmpdir, num_clips=MAX_CLIPS * 2, clip_dur=CLIP_D
                     '-ss', str(start_time),   # Busca el tiempo de inicio (rápido)
                     '-i', str(trailer_path),  # Archivo de entrada
                     '-t', str(clip_dur),      # Duración del clip
+                    # ELIMINA LA SIGUIENTE LÍNEA:
+                    # '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black',  # CAMBIO: Reemplaza crop por pad para usar barras negras
                     '-c:v', 'libx264',        # Códec de video H.264
                     '-preset', 'slow',        # Prioriza la calidad sobre la velocidad de codificación
                     '-crf', '18',             # Factor de calidad (18 es considerado visualmente sin pérdidas)
@@ -186,10 +187,6 @@ def save_clips(best_paths, tmdb_id, slug):
         saved_paths.append(str(dest_path.relative_to(ROOT)))
     return saved_paths
 
-def cleanup_temp_files(tmpdir):
-    """Limpia el directorio temporal."""
-    shutil.rmtree(tmpdir, ignore_errors=True)
-    logging.info(f"Limpieza de clips temporales en {tmpdir} completada.")
 
 def main():
     if not SEL_FILE.exists():
@@ -241,9 +238,6 @@ def main():
             logging.warning("Manifiesto no encontrado. No se actualizaron los clips.")
     except Exception as e:
         logging.error(f"Error inesperado en el proceso de extracción: {e}")
-    finally:
-        # Limpiamos solo el directorio temporal de los clips, el tráiler ya está en su sitio
-        cleanup_temp_files(tmpdir)
 
 if __name__ == "__main__":
     main()

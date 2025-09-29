@@ -17,6 +17,7 @@ from elevenlabs.client import ElevenLabs
 from elevenlabs import save
 import requests
 import tempfile
+import sys # Importación añadida para sys.exit()
 
 # Para resultados consistentes
 DetectorFactory.seed = 0
@@ -264,6 +265,12 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         return final_wav_path_final
         
     except requests.exceptions.HTTPError as http_err:
+        # --- CAMBIO: Detener la ejecución si la cuota está excedida ---
+        if http_err.response.status_code == 401 and "quota_exceeded" in http_err.response.text:
+            logging.error("¡ERROR! Cuota de ElevenLabs agotada. Por favor, recarga tu cuenta y vuelve a ejecutar el script.")
+            sys.exit(1) # Detiene la ejecución con código de error
+        # --- FIN DEL CAMBIO ---
+
         if http_err.response.status_code == 401:
             logging.error("Error de autenticación. Clave de API inválida.")
         elif http_err.response.status_code == 400 and "quota_exceeded" in http_err.response.text:
