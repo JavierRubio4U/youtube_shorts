@@ -24,11 +24,17 @@ STATE = ROOT / "output" / "state"
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# scripts/publish.py
-# ... (imports existentes) ...
-
 def main():
     # Paso 0: Limpieza de la ejecución anterior y archivado de shorts anteriores
+    logging.info("▶ Actualizando yt-dlp...")
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"], check=True)
+        logging.info("✅ yt-dlp actualizado con éxito.")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"❌ Fallo al actualizar yt-dlp: {e}")
+        # Puedes decidir si quieres continuar o salir aquí.
+
+
     logging.info("▶ Paso 0: Limpieza de la ejecución anterior y archivado de shorts anteriores")
     cleanup_temp.cleanup_on_start()
 
