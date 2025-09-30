@@ -31,10 +31,12 @@ CONFIG_DIR = ROOT / "config" # Nueva ruta para el directorio de configuración
 # --- Logging ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
+# --- Constantes ---
+# CAMBIO CLAVE 1: Usar Llama 3
+OLLAMA_MODEL = 'llama3:8b'
+
 
 # --- Funciones de texto ---
-def _sentences(s: str):
-    return [seg.strip() for seg in re.split(r"(?<=[\.\!\?…])\s+", s) if seg.strip()]
 
 def count_words(text: str) -> int:
     """Conteador de palabras más preciso."""
@@ -43,7 +45,7 @@ def count_words(text: str) -> int:
 # --- Funciones de IA ---
 # Reemplaza esta función en scripts/ai_narration.py
 
-def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Spanish', max_words=60, min_words=45, max_retries=3) -> str | None:
+def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=60, min_words=45, max_retries=3) -> str | None:
     """
     Genera una sinopsis con Ollama, con reintentos y un margen de flexibilidad.
     """
@@ -56,13 +58,15 @@ def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Span
 
     while attempt < max_retries:
         attempt += 1
-        logging.info(f"Generando sinopsis (Intento {attempt})...")
+        logging.info(f"Generando sinopsis (Intento {attempt}) usando modelo {model}...")
 
-        # El prompt inicial no cambia
+        # CAMBIO CLAVE 2: Nuevo prompt de estilo (hiper-dramático)
         initial_prompt = f"""
-        Genera una sinopsis detallada, atractiva y descriptiva de aproximadamente {min_words}-{max_words} palabras en español de España (castellano).
-        Debe ser un párrafo cohesivo, emocionante, enfocado en el conflicto principal, personajes y atmósfera, sin spoilers.
-        Es crucial que finalice con una oración completa y natural.
+        Genera una sinopsis DETALLADA, **EMOCIONANTE** y **DRAMÁTICA** de aproximadamente {min_words}-{max_words} palabras en español de España (castellano).
+        El tono debe ser **cinematográfico, tenso y épico**, centrándose en el **alto riesgo**, el **conflicto principal** y la **atmósfera inmersiva**. **EVITA** frases genéricas como "deberán afrontar desafíos" o "pone a prueba sus lazos".
+        Sé **agresivo** y **descriptivo**. Por ejemplo, en lugar de "problemas", usa "una devastadora amenaza" o "un abismo de traición".
+        **El estilo debe ser hiper-dramático, épico y directo, como la narración de un tráiler de videojuego AAA. Usa lenguaje enfocado en la acción y el alto riesgo.**
+        Es crucial que finalice con una oración **potente** y **con gancho**.
         El título '{sel.get("titulo")}' es un nombre propio y NO debe traducirse.
         No listes metadata como reparto o géneros.
         Ejemplo: 'En esta épica aventura, un joven héroe descubre un antiguo secreto en un mundo lleno de peligros, donde debe unir fuerzas con aliados inesperados para enfrentar a un villano poderoso que amenaza con destruir todo lo que ama, en una batalla que pondrá a prueba su coraje y determinación.'
@@ -85,11 +89,11 @@ def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Span
             
             # Si demasiado corta, expandir (esta lógica se mantiene)
             if word_count < min_words:
-                logging.warning(f"La sinopsis tiene {word_count} palabras (mínimo {min_words}). Expandiendo.")
-                # ... (el resto del bloque de expansión se mantiene igual)
+                logging.warning(f"La sinopsis tiene {word_count} palabras (mínimo {min_words}). Expandiéndola.")
+                # El prompt de expansión utiliza el nuevo prompt inicial para mantener el estilo
                 expansion_prompt = f"""
                 El siguiente texto es demasiado corto. Expándelo agregando detalles descriptivos sobre el conflicto, personajes o atmósfera para alcanzar al menos {min_words} palabras.
-                El resultado DEBE ser un párrafo cohesivo y sonar natural.
+                El resultado DEBE ser un párrafo cohesivo y sonar natural y mantener un estilo **hiper-dramático, épico y directo**.
                 Simplemente devuelve el texto corregido.
 
                 Texto a corregir:
@@ -104,7 +108,7 @@ def _generate_narration_with_ai(sel: dict, model='jobautomation/OpenEuroLLM-Span
                 logging.warning(f"La sinopsis tiene {word_count} palabras (máximo con margen: {max_words + margin}). Resumiendo.")
                 refinement_prompt = f"""
                 El siguiente texto es demasiado largo. Resúmelo manteniendo detalles clave para que tenga menos de {max_words + margin} palabras.
-                El resultado DEBE ser un párrafo cohesivo y sonar natural.
+                El resultado DEBE ser un párrafo cohesivo, sonar natural y mantener un estilo **hiper-dramático, épico y directo**.
                 Simplemente devuelve el texto corregido.
 
                 Texto a corregir:
@@ -154,7 +158,8 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_d
     Genera la narración con IA (usando auto-corrección) y sintetiza el audio.
     """
     logging.info("🔎 Generando sinopsis con IA local...")
-    narracion = _generate_narration_with_ai(sel)
+    # Se usa el modelo globalmente definido (OLLAMA_MODEL)
+    narracion = _generate_narration_with_ai(sel, model=OLLAMA_MODEL)
     
     if narracion:
         logging.info(f"Narración generada completa: {narracion}")
@@ -284,26 +289,6 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         logging.error(f"Error en la síntesis con ElevenLabs: {e}")
         return None
         
-# --- Funciones de audio ---
-def _clean_for_tts(text: str) -> str:
-    if not text: return ""
-    text = re.sub(r"http[s]?://\S+", "", text)
-    text = re.sub(r"\s+", " ", text).replace("—","-").replace("–","-")
-    text = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ,\.\-\!\?\:\;\'\"]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()[:900]
-
-
-def _concat_wav_ffmpeg(inputs: list[Path], out_wav: Path) -> bool:
-    if not inputs: return False
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
-    for s in inputs: cmd += ["-i", str(s)]
-    n = len(inputs)
-    filt = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[outa]"
-    cmd += ["-filter_complex", filt, "-map", "[outa]", str(out_wav)]
-    res = subprocess.run(cmd, check=True, capture_output=True)
-    return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 0
-
-
 
 # (Opcional: si usas main() standalone, lo puedes dejar; si no, elimínalo)
 def main():

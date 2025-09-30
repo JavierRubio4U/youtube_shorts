@@ -44,16 +44,20 @@ def download_trailer(url, tmdb_id, slug):
     
     ydl_opts = {
         'outtmpl': str(trailer_path_template),
-        'format': 'bestvideo[height>=1080][vcodec^=avc1]+bestaudio/best',  # Cambio: Prefiere AVC para evitar 403 premium
+        # CAMBIO: Exigir un mínimo de 1080p para la descarga de video.
+        # Si no hay 1080p, yt-dlp devolverá un error, lo cual es lo que queremos.
+        'format': 'bestvideo[height>=1080]+bestaudio/best',  
+        'format_sort': ['res', 'vcodec:vp9'], # Ordena por resolución descendente y prefiere VP9
+        'prefer_free_formats': True,  # Evita formatos premium restringidos
         'merge_output_format': 'mp4',
         'no_playlist': True,
-        'quiet': True,  # Cambio: No quiet para logs verbose en depuración
-        'verbose': False,  # Cambio: Verbose para ver detalles de descarga
-        'no_warnings': True,  # Cambio: Suprime warnings
-        'extractor_args': {'youtube': {'player_client': 'web,android'}},  # Cambio: Evita iOS para formatos libres
-        'forceipv4': True,  # Cambio: Fuerza IPv4 para estabilidad
-        'retries': 3,  # Cambio: Reintentos para robustez
-        'log_level': 'error', # CAMBIO: Añadido para suprimir logs de descarga
+        'quiet': True,
+        'verbose': False,
+        'no_warnings': True,
+        'extractor_args': {'youtube': {'player_client': 'web,android'}},
+        'forceipv4': True,
+        'retries': 3,
+        'log_level': 'error',
     }
     
 
@@ -116,16 +120,14 @@ def extract_clips(trailer_path, tmpdir, num_clips=MAX_CLIPS * 2, clip_dur=CLIP_D
                     break  # No extraer si se solapa con el skip final
                 out_path = tmpdir / f"clip_{i+1}.mp4"
                 cmd = [
-                    'ffmpeg', '-y', 
-                    '-ss', str(start_time),   # Busca el tiempo de inicio (rápido)
-                    '-i', str(trailer_path),  # Archivo de entrada
-                    '-t', str(clip_dur),      # Duración del clip
-                    # ELIMINA LA SIGUIENTE LÍNEA:
-                    # '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black',  # CAMBIO: Reemplaza crop por pad para usar barras negras
-                    '-c:v', 'libx264',        # Códec de video H.264
-                    '-preset', 'slow',        # Prioriza la calidad sobre la velocidad de codificación
-                    '-crf', '18',             # Factor de calidad (18 es considerado visualmente sin pérdidas)
-                    '-an', str(out_path)      # Sin pista de audio
+                    'ffmpeg', '-y',
+                    '-ss', str(start_time),  # Seek rápido antes de input
+                    '-i', str(trailer_path),
+                    '-t', str(clip_dur),
+                    '-c', 'copy',  # Copia streams sin re-codificar (preserva calidad original)
+                    '-an',  # Sin audio
+                    '-avoid_negative_ts', 'make_zero',  # Corrige timestamps para compatibilidad
+                    str(out_path)
                 ]
                 try:
                     subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

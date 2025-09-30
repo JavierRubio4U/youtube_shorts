@@ -25,9 +25,8 @@ SHORTS_DIR = ROOT / "output" / "shorts"
 MANIFEST = STATE / "assets_manifest.json"
 SEL_FILE = STATE / "next_release.json"
 
-W, H = 1080, 1920  # Ancho y alto para formato vertical 9:16
-# CAMBIO: Añadida la constante para el tamaño del cuadrado
-SQUARE_SIZE = 1080 # El tamaño del cuadrado que queremos (1080x1080)
+W, H = 2160, 3840  # CAMBIO: 4K vertical (2160x3840)
+SQUARE_SIZE = 2160 # CAMBIO: El cuadrado debe ser 2160x2160
 INTRO_DURATION = 4  # Duración de la intro con la imagen
 CLIP_DURATION = 6  # Duración de los clips de video
 MAX_BACKDROPS = 4  # Máximo de clips
@@ -59,22 +58,31 @@ def resize_to_9_16(clip: VideoFileClip) -> VideoFileClip:
     Recorta el centro del clip a un formato cuadrado (1080x1080) y lo coloca
     en un fondo vertical 9:16 con bandas negras.
     """
-    # Definimos las dimensiones de un YouTube Short
-    W, H = 1080, 1920
-    SQUARE_SIZE = 1080
     
     logging.info(f"Dimensiones originales del clip: {clip.size[0]}x{clip.size[1]}")
 
-    # Paso 1: Recortar el centro del clip original a una proporción cuadrada.
-    # Para un video de 1920x1080, esto lo dejará en 1080x1080.
-    square_clip = clip.cropped(x_center=clip.w / 2, width=SQUARE_SIZE)
-    logging.info(f"Dimensiones tras recortar a cuadrado de {SQUARE_SIZE}px de ancho: {square_clip.size[0]}x{square_clip.size[1]}")
+# Paso 1: Recortar el centro del clip original a una proporción cuadrada.
+    # El ancho será el menor entre el ancho del clip y la altura del clip,
+    # reescalado para asegurar que la porción central es la que usamos.
+    
+    # Tomamos el centro del clip de origen con dimensiones SQUARE_SIZE x SQUARE_SIZE
+    # Si el clip original es 1920x1080 y SQUARE_SIZE=1440:
+    # 1. Recortamos horizontalmente, dejando un clip de (1440/1080)*1920 x 1080 (aprox)
+    # 2. Reescalamos el recorte resultante a 1440x1440
+    
+    # ----------------------------------------------------------------------------------
+    # CAMBIO: Recorte y Reescalado forzado a SQUARE_SIZE x SQUARE_SIZE
+    # ----------------------------------------------------------------------------------
+    
+    # Recortar horizontalmente (si es 16:9), manteniendo la altura de 1080.
+    # Esto resulta en un clip de 1920x1080 -> 1080x1080
+    square_clip_intermediate = clip.cropped(x_center=clip.w / 2, width=clip.h)
+    
+    # Forzar el reescalado a la dimensión final del cuadrado (1440x1440)
+    square_clip = square_clip_intermediate.resized((SQUARE_SIZE, SQUARE_SIZE))
 
-    # Si la altura del clip original fuera mayor a 1080, también recortaríamos verticalmente.
-    if square_clip.h > SQUARE_SIZE:
-        square_clip = square_clip.cropped(y_center=square_clip.h / 2, height=SQUARE_SIZE)
-        logging.info(f"Dimensiones tras recortar altura a {SQUARE_SIZE}px: {square_clip.size[0]}x{square_clip.size[1]}")
-
+    logging.info(f"Dimensiones tras recorte y reescalado forzado a cuadrado: {square_clip.size[0]}x{square_clip.size[1]}")
+    
     # Paso 2: Crear el fondo negro vertical final.
     background = ColorClip(size=(W, H), color=(0, 0, 0), duration=clip.duration)
 
@@ -186,10 +194,12 @@ def main():
 
         out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
         final_clip.write_videofile(
-            str(out_file), fps=60,
-            codec="libx264", preset="veryslow",
-            bitrate="20000k",
-            ffmpeg_params=["-crf", "18"]
+            str(out_file),
+            codec="libx264",
+            fps=60, 
+            preset="slow", # Mejor calidad de compresión, aunque tarda más
+            bitrate="50000k", # 50 Mbps para forzar la clasificación 4K
+            ffmpeg_params=["-crf", "18", "-movflags", "faststart"] 
         )
         logging.info(f"🎬 Short generado en: {out_file}")
 

@@ -31,20 +31,41 @@ def _is_latin_text(text: str) -> bool:
         return False
     return all('a' <= c.lower() <= 'z' or c.isdigit() or c in 'áéíóúüñÁÉÍÓÚÜÑ\s\:\-\!\?\.,\'"' for c in text)
 
-def _translate_with_ai(text: str, title: str, model='mistral') -> str | None:
-    """Traduce un texto usando un modelo local de Ollama."""
+# scripts/build_youtube_metadata.py (Función a reemplazar)
+
+def _translate_with_ai(text: str, title: str, model='llama3:8b') -> str | None:
+    """Traduce un texto usando un modelo local de Ollama, con lógica anti-alucinación."""
     try:
-        if detect(title) == 'es' or re.search(r'\d', title):
+        # **CAMBIO 1: Si ya está en español o tiene números, SALTAR la traducción.**
+        # Esto previene errores como Bala Perdida -> Bulletproof Monk.
+        # Asumimos que si detect(title) es 'es' y no tiene caracteres raros, ya está bien.
+        if detect(title) == 'es' and _is_latin_text(title):
             logging.info(f"Título '{title}' ya es adecuado; manteniendo original.")
             return title
         
-        prompt = f"""Si el siguiente título es un nombre propio de franquicia o película popular, no lo traduzcas y mantén el original. De lo contrario, tradúcelo al español de forma natural, sin añadir ninguna explicación adicional. Título: {text}"""
+        # **CAMBIO 2: Prompt con reglas estrictas de bloqueo.**
+        prompt = f"""El siguiente es un título de película. Sigue estas reglas estrictas:
+        1. **NO LO TRADUZCAS** si ya está en español o si es un nombre propio conocido que se mantiene igual internacionalmente (ej. 'Avatar', 'Alien'). Si mantienes el original, devuelve **SOLO** el título original: {text}.
+        2. Si la traducción más común del título {text} resulta ser el nombre de **OTRA** película popular ya existente (como 'Bulletproof Monk' o cualquier otro título famoso), NO uses esa traducción, sino que encuentra el título más literal y natural al español.
+        3. Si la traducción es necesaria, tradúcela al español de forma natural, sin añadir ninguna explicación ni comentario.
+        4. Devuelve **SOLO** el título traducido o el original.
+
+        Título a procesar: {text}
+        """
+
         response = ollama.chat(model=model, messages=[
             {'role': 'user', 'content': prompt}
         ])
         translated_text = response['message']['content'].strip()
+        # Limpieza: Remueve cualquier texto entre paréntesis o líneas extra que la IA pueda añadir.
         translated_text = re.sub(r'\s*\([^)]*\)|\n.*', '', translated_text).strip()
+
+        # Si el resultado es idéntico a la entrada, no pasó nada.
+        if translated_text.lower() == text.lower():
+             logging.warning(f"⚠ La traducción fue idéntica, manteniendo: {text}")
+
         return translated_text
+        
     except Exception as e:
         logging.error(f"❌ Error al traducir el título con Ollama: {e}")
         return None
