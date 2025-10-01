@@ -57,6 +57,10 @@ def _translate_with_ai(text: str, title: str, model='llama3:8b') -> str | None:
             {'role': 'user', 'content': prompt}
         ])
         translated_text = response['message']['content'].strip()
+        
+        # CAMBIO: Insertar esta línea de limpieza agresiva (usa solo espacios para indentar):
+        translated_text = re.sub(r'^.*:\s*', '', translated_text, flags=re.MULTILINE).strip()
+        
         # Limpieza: Remueve cualquier texto entre paréntesis o líneas extra que la IA pueda añadir.
         translated_text = re.sub(r'\s*\([^)]*\)|\n.*', '', translated_text).strip()
 

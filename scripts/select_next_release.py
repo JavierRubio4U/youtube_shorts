@@ -320,9 +320,9 @@ def pick_next():
     
     prioritized_list = digital_releases + other_movies
     
-    # 4. Filtrar por fecha de estreno (últimos 4 meses)
+    # 4. Filtrar por fecha de estreno (últimos 6 meses)
     hoy = datetime.now()
-    hace_cuatro_meses = hoy - timedelta(days=122)
+    hace_cuatro_meses = hoy - timedelta(days=184)
     
     filtered_trending_movies = []
     for movie in prioritized_list:
