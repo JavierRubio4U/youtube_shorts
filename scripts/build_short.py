@@ -197,7 +197,7 @@ def main():
             str(out_file),
             codec="libx264",
             fps=60, 
-            preset="slow", # Mejor calidad de compresión, aunque tarda más
+            preset="medium", # Mejor calidad de compresión, aunque tarda más
             bitrate="50000k", # 50 Mbps para forzar la clasificación 4K
             ffmpeg_params=["-crf", "18", "-movflags", "faststart"] 
         )
