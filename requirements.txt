@@ -1,0 +1,27 @@
+# --- Core video and image processing ---
+moviepy==2.2.1
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+Pillow==11.3.0
+numpy==2.3.3
+opencv-python==4.12.0.88
+pandas==2.3.3
+
+# --- AI and language tools ---
+ollama==0.6.0
+pytesseract==0.3.13
+langdetect==1.0.9
+TTS==0.22.0
+
+# --- Download and web tools ---
+requests==2.32.5
+yt-dlp==2025.9.26
+
+# --- YouTube API ---
+google-api-python-client==2.183.0
+google-auth==2.41.1
+google-auth-oauthlib==1.2.2
+google-auth-httplib2==0.2.0
+
+# --- Image processing extras ---
+imagehash==4.3.2
