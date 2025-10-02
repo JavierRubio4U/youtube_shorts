@@ -13,7 +13,7 @@ META_FILE = STATE / "youtube_metadata.json"
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- Constantes de IA (AÑADIDO) ---
-OLLAMA_MODEL = 'qwen3:30b' 
+OLLAMA_MODEL = 'qwen3:14b' 
 
 # --- Función de traducción de título (AÑADIDO) ---
 def _translate_title_with_ai(title: str) -> str | None:

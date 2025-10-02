@@ -33,7 +33,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- Constantes ---
 # CAMBIO CLAVE 1: Usar command-r para mayor calidad y fiabilidad
-OLLAMA_MODEL = 'qwen3:30b' 
+OLLAMA_MODEL = 'qwen3:14b' 
 
 
 # --- Funciones de texto ---
