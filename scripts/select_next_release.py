@@ -19,7 +19,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 # Módulos del proyecto
-import yt_dlp
+import yt_dlp # type: ignore
 
 try:
     from datetime import UTC

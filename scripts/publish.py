@@ -69,7 +69,7 @@ def main():
         logging.info("▶ Paso 2.5: extraer clips del tráiler (con logs verbose)...")
         try:
             # Capturamos la salida para saber si hay un error específico
-            result = subprocess.run(["python3", str(ROOT / "scripts" / "extract_video_clips_from_trailer.py")],
+            result = subprocess.run([sys.executable, str(ROOT / "scripts" / "extract_video_clips_from_trailer.py")],
                                     check=True, cwd=ROOT, capture_output=True, text=True)
             print("STDOUT de extracción:", result.stdout)
             if result.stderr:

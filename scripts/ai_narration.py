@@ -26,14 +26,14 @@ DetectorFactory.seed = 0
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 STATE.mkdir(parents=True, exist_ok=True)
-CONFIG_DIR = ROOT / "config" # Nueva ruta para el directorio de configuración
+CONFIG_DIR = ROOT / "config"
 
 # --- Logging ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- Constantes ---
-# CAMBIO CLAVE 1: Usar Llama 3
-OLLAMA_MODEL = 'llama3:8b'
+# CAMBIO CLAVE 1: Usar command-r para mayor calidad y fiabilidad
+OLLAMA_MODEL = 'qwen3:30b' 
 
 
 # --- Funciones de texto ---
@@ -43,38 +43,38 @@ def count_words(text: str) -> int:
     return len(re.findall(r'\b\w+\b', text))
 
 # --- Funciones de IA ---
-# Reemplaza esta función en scripts/ai_narration.py
 
-def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=60, min_words=45, max_retries=3) -> str | None:
+def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=70, min_words=50, max_retries=3) -> str | None:
     """
-    Genera una sinopsis con Ollama, con reintentos y un margen de flexibilidad.
+    Genera una sinopsis con Ollama, con reintentos y lógica de corrección.
     """
     attempt = 0
     generated_text = ""
     word_count = 0
-    
-    # CAMBIO: Definimos un margen de tolerancia para las palabras
-    margin = 4
+    margin = 5 # Margen de tolerancia para las palabras
 
     while attempt < max_retries:
         attempt += 1
-        logging.info(f"Generando sinopsis (Intento {attempt}) usando modelo {model}...")
+        logging.info(f"Generando sinopsis (Intento {attempt}/{max_retries}) usando el modelo '{model}'...")
 
-        # CAMBIO CLAVE 2: Nuevo prompt de estilo (hiper-dramático)
+        # CAMBIO CLAVE 2: Prompt mejorado para sinopsis épicas (aprendido de sinopsis_pro.py)
         initial_prompt = f"""
-        Genera una sinopsis DETALLADA, **EMOCIONANTE** y **DRAMÁTICA** de aproximadamente {min_words}-{max_words} palabras en español de España (castellano).
-        El tono debe ser **cinematográfico, tenso y épico**, centrándose en el **alto riesgo**, el **conflicto principal** y la **atmósfera inmersiva**. **EVITA** frases genéricas como "deberán afrontar desafíos" o "pone a prueba sus lazos".
-        Sé **agresivo** y **descriptivo**. Por ejemplo, en lugar de "problemas", usa "una devastadora amenaza" o "un abismo de traición".
-        **El estilo debe ser hiper-dramático, épico y directo, como la narración de un tráiler de videojuego AAA. Usa lenguaje enfocado en la acción y el alto riesgo.**
-        Es crucial que finalice con una oración **potente** y **con gancho**.
-        El título '{sel.get("titulo")}' es un nombre propio y NO debe traducirse.
-        No listes metadata como reparto o géneros.
-        Ejemplo: 'En esta épica aventura, un joven héroe descubre un antiguo secreto en un mundo lleno de peligros, donde debe unir fuerzas con aliados inesperados para enfrentar a un villano poderoso que amenaza con destruir todo lo que ama, en una batalla que pondrá a prueba su coraje y determinación.'
-        Usa la siguiente información para inspirarte:
+        Tu tarea es generar una sinopsis para una película en español de España (castellano).
+        Usa la sinopsis original en inglés como base, pero NO te limites a una traducción literal.
+        Debes crear un texto nuevo que sea EMOCIONANTE, CINEMATOGRÁFICO y con 'PUNCH'.
 
-        Título: {sel.get("titulo")}
-        Sinopsis original: {sel.get("sinopsis")}
-        Géneros: {', '.join(sel.get("generos"))}
+        REGLAS ESTRICTAS:
+        1. Tono: El estilo debe ser épico y dramático, como el de un tráiler, centrado en el conflicto principal.
+        2. Longitud: La sinopsis debe tener entre {min_words} y {max_words} palabras.
+        3. Sin Relleno: NO incluyas frases introductorias como "Aquí tienes la sinopsis". Tu respuesta debe ser ÚNICAMENTE el texto de la sinopsis.
+        4. Contexto: Utiliza el título y géneros para entender el contexto.
+
+        Información de la Película:
+        - Título Original: "{sel.get("titulo")}"
+        - Sinopsis Original (en inglés): "{sel.get("sinopsis")}"
+        - Géneros: {', '.join(sel.get("generos", []))}
+
+        Ahora, genera la nueva sinopsis en castellano.
         """
         
         try:
@@ -82,45 +82,26 @@ def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=60, min
             generated_text = response['message']['content'].strip()
             word_count = count_words(generated_text)
 
-            # CAMBIO: La condición de éxito ahora incluye el margen
             if min_words <= word_count <= (max_words + margin):
-                logging.info(f"Narración generada con éxito ({word_count} palabras, dentro del margen de {max_words + margin}).")
+                logging.info(f"Narración generada con éxito ({word_count} palabras).")
                 return generated_text
             
-            # Si demasiado corta, expandir (esta lógica se mantiene)
             if word_count < min_words:
-                logging.warning(f"La sinopsis tiene {word_count} palabras (mínimo {min_words}). Expandiéndola.")
-                # El prompt de expansión utiliza el nuevo prompt inicial para mantener el estilo
-                expansion_prompt = f"""
-                El siguiente texto es demasiado corto. Expándelo agregando detalles descriptivos sobre el conflicto, personajes o atmósfera para alcanzar al menos {min_words} palabras.
-                El resultado DEBE ser un párrafo cohesivo y sonar natural y mantener un estilo **hiper-dramático, épico y directo**.
-                Simplemente devuelve el texto corregido.
-
-                Texto a corregir:
-                "{generated_text}"
-                """
+                logging.warning(f"Texto demasiado corto ({word_count} palabras). Pidiendo expansión...")
+                expansion_prompt = f"El siguiente texto es demasiado corto. Expándelo a unas {min_words}-{max_words} palabras, manteniendo el tono épico y cinematográfico. Devuelve solo el párrafo completo.\nTexto a expandir: \"{generated_text}\""
                 response = ollama.chat(model=model, messages=[{'role': 'user', 'content': expansion_prompt}])
                 generated_text = response['message']['content'].strip()
                 word_count = count_words(generated_text)
 
-            # Si demasiado larga (fuera del margen), resumir (esta lógica se mantiene)
             elif word_count > (max_words + margin):
-                logging.warning(f"La sinopsis tiene {word_count} palabras (máximo con margen: {max_words + margin}). Resumiendo.")
-                refinement_prompt = f"""
-                El siguiente texto es demasiado largo. Resúmelo manteniendo detalles clave para que tenga menos de {max_words + margin} palabras.
-                El resultado DEBE ser un párrafo cohesivo, sonar natural y mantener un estilo **hiper-dramático, épico y directo**.
-                Simplemente devuelve el texto corregido.
-
-                Texto a corregir:
-                "{generated_text}"
-                """
+                logging.warning(f"Texto demasiado largo ({word_count} palabras). Pidiendo resumen...")
+                refinement_prompt = f"El siguiente texto es demasiado largo. Resúmelo a unas {min_words}-{max_words} palabras, manteniendo el tono épico y los detalles clave. Devuelve solo el párrafo completo.\nTexto a resumir: \"{generated_text}\""
                 response = ollama.chat(model=model, messages=[{'role': 'user', 'content': refinement_prompt}])
                 generated_text = response['message']['content'].strip()
                 word_count = count_words(generated_text)
 
-            # Verificación final del intento con el margen incluido
             if min_words <= word_count <= (max_words + margin):
-                logging.info(f"Narración corregida con éxito ({word_count} palabras, dentro del margen de {max_words + margin}).")
+                logging.info(f"Narración corregida con éxito ({word_count} palabras).")
                 return generated_text
             else:
                 logging.warning(f"Aún fuera del rango ({word_count} palabras) tras la corrección. Reintentando...")
@@ -129,15 +110,13 @@ def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=60, min
             logging.error(f"Error al generar narración con Ollama: {e}")
             return None
     
-    logging.warning(f"No se logró el rango después de {max_retries} intentos. Usando la última versión generada ({word_count} palabras).")
+    logging.warning(f"No se logró el rango después de {max_retries} intentos. Usando la última versión ({word_count} palabras).")
     return generated_text
 
 def _get_tmp_voice_path(tmdb_id: str, slug: str, tmpdir: Path) -> Path:
-    """Retorna la ruta temporal para el archivo de voz."""
     return tmpdir / f"{tmdb_id}_{slug}_narracion.wav"
 
 def _get_elevenlabs_api_key() -> str | None:
-    """Lee la clave API desde el archivo de texto en el directorio 'config'."""
     api_key_path = CONFIG_DIR / "elevenlabs_api_key.txt"
     try:
         if not api_key_path.exists():
@@ -154,11 +133,7 @@ def _get_elevenlabs_api_key() -> str | None:
         return None
 
 def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_duration: float | None = None) -> tuple[str | None, Path | None]:
-    """
-    Genera la narración con IA (usando auto-corrección) y sintetiza el audio.
-    """
     logging.info("🔎 Generando sinopsis con IA local...")
-    # Se usa el modelo globalmente definido (OLLAMA_MODEL)
     narracion = _generate_narration_with_ai(sel, model=OLLAMA_MODEL)
     
     if narracion:
@@ -191,106 +166,62 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_d
 
 def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, slug: str, video_duration: float | None = None) -> Path | None:
     try:
-        # Reemplaza esta clave con la tuya personal
-        VOICE_ID = "yiWEefwu5z3DQCM79clN" # ID para la voz de Rachel
-        
-        # Obtener la clave API desde el archivo
+        VOICE_ID = "yiWEefwu5z3DQCM79clN"
         API_KEY = _get_elevenlabs_api_key()
         if not API_KEY:
             logging.error("No se pudo obtener la clave de ElevenLabs. Se detiene la síntesis.")
             return None
 
         client = ElevenLabs(api_key=API_KEY)
-        
-        # Obtener datos de suscripción
         user_subscription_data = client.user.subscription.get()
+        character_limit = user_subscription_data.character_limit or float('inf')
+        character_count = user_subscription_data.character_count or 0
 
-        # Manejo seguro de limits
-        character_limit = user_subscription_data.character_limit
-        if character_limit is None:
-            logging.warning("Character limit is None; assuming unlimited plan.")
-            character_limit = float('inf')
-        elif isinstance(character_limit, str):
-            logging.warning(f"Character limit is string '{character_limit}'; assuming unlimited.")
-            character_limit = float('inf')
-        else:
-            character_limit = int(character_limit)  # Asegura int
-
-        character_count = user_subscription_data.character_count or 0  # Default 0 si None
-
-        # Quota check solo si finito
-        MAX_CHARACTERS = 0.9 * character_limit
-        if character_limit != float('inf') and character_count > MAX_CHARACTERS:
+        if character_count > (0.9 * character_limit):
             logging.warning(f"¡Cuidado! Te estás quedando sin cuota. Usados: {character_count}/{character_limit}")
 
-# Resto del código (generación audio)...
-        # Generar audio con ElevenLabs
         audio_stream = client.text_to_speech.convert(
-            voice_id=VOICE_ID,
-            text=text,
-            model_id="eleven_multilingual_v2",
-        )
+            voice_id=VOICE_ID, text=text, model_id="eleven_multilingual_v2")
         
-        # Guardar el stream de bytes como archivo temporal MP3
         temp_voice_path = tmpdir / f"_temp_voice_{tmdb_id}_{slug}.mp3"
         with open(temp_voice_path, 'wb') as f:
-            for chunk in audio_stream:
-                f.write(chunk)
+            for chunk in audio_stream: f.write(chunk)
         
-        if not temp_voice_path.exists(): 
-            raise FileNotFoundError
+        if not temp_voice_path.exists(): raise FileNotFoundError
 
-        # Convertir a WAV para compatibilidad con MoviePy
         temp_wav_path = tmpdir / f"_temp_voice_{tmdb_id}_{slug}.wav"
         subprocess.run(["ffmpeg", "-y", "-i", str(temp_voice_path), str(temp_wav_path)], check=True, capture_output=True)
         temp_voice_path.unlink(missing_ok=True)
 
-        # Cargar la voz temporal en un AudioFileClip
         voice_clip = AudioFileClip(str(temp_wav_path))
-        
-        # Añadir el silencio inicial de 1 segundo
         initial_silence_clip = AudioClip(lambda t: 0, duration=1.0)
         final_adjusted_clip = concatenate_audioclips([initial_silence_clip, voice_clip])
         
-        # Ajustar a la duración total deseada (26 segundos) si es necesario
         target_total_duration = 28.0
         if final_adjusted_clip.duration < target_total_duration:
             extra_silence = target_total_duration - final_adjusted_clip.duration
             silence_at_end = AudioClip(lambda t: 0, duration=extra_silence)
             final_adjusted_clip = concatenate_audioclips([final_adjusted_clip, silence_at_end])
 
-        # Guardar la voz ajustada como final
         final_wav_path_final = _get_tmp_voice_path(tmdb_id, slug, tmpdir)
         final_adjusted_clip.write_audiofile(str(final_wav_path_final), logger=None)
         
-        # Limpieza
         temp_wav_path.unlink(missing_ok=True)
         
-        logging.info(f"Voz generada con duración ajustada: {final_adjusted_clip.duration:.2f}s (incluyendo 1s inicial).")
+        logging.info(f"Voz generada con duración ajustada: {final_adjusted_clip.duration:.2f}s.")
         return final_wav_path_final
         
     except requests.exceptions.HTTPError as http_err:
-        # --- CAMBIO: Detener la ejecución si la cuota está excedida ---
         if http_err.response.status_code == 401 and "quota_exceeded" in http_err.response.text:
-            logging.error("¡ERROR! Cuota de ElevenLabs agotada. Por favor, recarga tu cuenta y vuelve a ejecutar el script.")
-            sys.exit(1) # Detiene la ejecución con código de error
-        # --- FIN DEL CAMBIO ---
-
-        if http_err.response.status_code == 401:
-            logging.error("Error de autenticación. Clave de API inválida.")
-        elif http_err.response.status_code == 400 and "quota_exceeded" in http_err.response.text:
-            logging.error("Error 400: Cuota excedida. No se puede completar la solicitud.")
-        elif http_err.response.status_code == 403:
-            logging.error("Error 403: Acceso denegado. Es posible que el plan actual no soporte esta función.")
+            logging.error("¡ERROR! Cuota de ElevenLabs agotada. Por favor, recarga tu cuenta.")
+            sys.exit(1)
         else:
-            logging.error(f"Error HTTP desconocido al verificar la suscripción: {http_err}")
+            logging.error(f"Error HTTP desconocido: {http_err}")
         return None
     except Exception as e:
         logging.error(f"Error en la síntesis con ElevenLabs: {e}")
         return None
-        
 
-# (Opcional: si usas main() standalone, lo puedes dejar; si no, elimínalo)
 def main():
     SEL_FILE = STATE / "next_release.json"
     if not SEL_FILE.exists():
