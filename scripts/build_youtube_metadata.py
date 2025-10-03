@@ -1,8 +1,10 @@
 # scripts/build_youtube_metadata.py
+# scripts/build_youtube_metadata.py
 import json
 from pathlib import Path
 import logging
-import ollama # <--- AÑADIDO
+import ollama
+import re # <-- AÑADIDO POR SEGURIDAD
 
 # --- Configuración ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,37 +14,41 @@ META_FILE = STATE / "youtube_metadata.json"
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# --- Constantes de IA (AÑADIDO) ---
+# --- Constantes de IA ---
+# CAMBIO: Modelo final establecido tras las pruebas.
 OLLAMA_MODEL = 'qwen3:14b' 
 
-# --- Función de traducción de título (AÑADIDO) ---
+# --- Función de traducción de título ---
 def _translate_title_with_ai(title: str) -> str | None:
-    """Usa Ollama para traducir un título con el prompt mejorado."""
+    """Usa Ollama para traducir un título con el prompt 'blindado' optimizado."""
     
+    # CAMBIO: Usando el prompt "blindado" final para títulos.
     prompt = f"""
-    Tu tarea es traducir un título de película al español de España (castellano). Sigue estas reglas:
+    Eres un experto en la localización de títulos de películas para el mercado de España.
+    Tu ÚNICA tarea es traducir el siguiente título de película al castellano.
 
-    1.  **ACCIÓN POR DEFECTO**: Siempre traduce el título. Solo harás una excepción a esta regla en el caso #2.
-    2.  **EXCEPCIÓN**: NO traduzcas el título ÚNICAMENTE si es el nombre de una película o franquicia EXTREMADAMENTE famosa que se mantuvo en inglés en el mercado español (ej: 'Pulp Fiction', 'Star Wars').
-    3.  **SUBTÍTULOS**: Si el título tiene dos puntos ':', mantén la parte principal y traduce solo el subtítulo (ej: 'Dune: Part Two' -> 'Dune: Parte Dos').
-    4.  **RESPUESTA LIMPIA**: Devuelve ÚNICAMENTE el título traducido, sin comillas ni explicaciones.
+    **Reglas Inquebrantables:**
+    1.  **FORMATO DE SALIDA**: SOLO devolverás el texto del título traducido. NADA MÁS. Está terminantemente prohibido incluir explicaciones, comentarios, razonamientos o cualquier tipo de etiqueta como `<think>`.
+    2.  **LÓGICA DE TRADUCCIÓN**: TRADUCE SIEMPRE el título, a menos que sea una marca o franquicia mundialmente famosa que NUNCA se traduce en España (ej: Star Wars, Pulp Fiction, Avatar). En caso de duda, la acción por defecto es TRADUCIR.
+    3.  **SUBTÍTULOS**: Si el título contiene ':', mantén la parte principal y traduce solo el subtítulo.
 
-    **Ejemplos para guiarte:**
-    - Título Original: 'Your Fault' -> Respuesta Correcta: 'Culpa Tuya'
-    - Título Original: 'Heads of State' -> Respuesta Correcta: 'Jefes de Estado'
-
-    Ahora, aplica estas reglas. Recuerda, en caso de duda, TRADUCE.
-    Título original: "{title}"
+    **Título a traducir:** "{title}"
     """
     try:
         logging.info(f"Traduciendo título '{title}' con el modelo '{OLLAMA_MODEL}'...")
         response = ollama.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': prompt}])
         translation = response['message']['content'].strip().strip('"')
+        
+        # CAMBIO: Limpieza de seguridad anti-<think>
+        if '<think>' in translation:
+            translation = re.sub(r'<think>.*</think>', '', translation, flags=re.DOTALL).strip()
+            
         logging.info(f"Título traducido como: '{translation}'")
         return translation
     except Exception as e:
         logging.error(f"Error al contactar con el modelo de IA Ollama: {e}")
         return None
+
 
 # --- Función Principal ---
 def main():

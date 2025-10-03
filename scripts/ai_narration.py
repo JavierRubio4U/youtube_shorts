@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 import ollama
 from slugify import slugify
-# LÍNEA CORRECTA
 from moviepy import AudioFileClip, concatenate_audioclips, AudioClip
 import moviepy.audio.fx as afx
 from langdetect import detect, DetectorFactory
@@ -17,9 +16,8 @@ from elevenlabs.client import ElevenLabs
 from elevenlabs import save
 import requests
 import tempfile
-import sys # Importación añadida para sys.exit()
+import sys
 
-# Para resultados consistentes
 DetectorFactory.seed = 0
 
 # --- Rutas y dirs ---
@@ -32,75 +30,70 @@ CONFIG_DIR = ROOT / "config"
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- Constantes ---
-# CAMBIO CLAVE 1: Usar command-r para mayor calidad y fiabilidad
+# CAMBIO: Modelo final establecido tras las pruebas.
 OLLAMA_MODEL = 'qwen3:14b' 
 
-
 # --- Funciones de texto ---
-
 def count_words(text: str) -> int:
     """Conteador de palabras más preciso."""
     return len(re.findall(r'\b\w+\b', text))
 
 # --- Funciones de IA ---
-
 def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=70, min_words=50, max_retries=3) -> str | None:
     """
-    Genera una sinopsis con Ollama, con reintentos y lógica de corrección.
+    Genera una sinopsis con Ollama, usando el prompt y la lógica de corrección optimizados.
     """
     attempt = 0
     generated_text = ""
-    word_count = 0
-    margin = 5 # Margen de tolerancia para las palabras
-
+    
     while attempt < max_retries:
         attempt += 1
         logging.info(f"Generando sinopsis (Intento {attempt}/{max_retries}) usando el modelo '{model}'...")
 
-        # CAMBIO CLAVE 2: Prompt mejorado para sinopsis épicas (aprendido de sinopsis_pro.py)
+        # CAMBIO: Usando el prompt "blindado" final para sinopsis.
         initial_prompt = f"""
-        Tu tarea es generar una sinopsis para una película en español de España (castellano).
-        Usa la sinopsis original en inglés como base, pero NO te limites a una traducción literal.
-        Debes crear un texto nuevo que sea EMOCIONANTE, CINEMATOGRÁFICO y con 'PUNCH'.
+        Eres un guionista profesional experto en marketing cinematográfico. Tu única misión es crear una sinopsis corta y potente para la película '{sel.get("titulo")}' en castellano.
 
-        REGLAS ESTRICTAS:
-        1. Tono: El estilo debe ser épico y dramático, como el de un tráiler, centrado en el conflicto principal.
-        2. Longitud: La sinopsis debe tener entre {min_words} y {max_words} palabras.
-        3. Sin Relleno: NO incluyas frases introductorias como "Aquí tienes la sinopsis". Tu respuesta debe ser ÚNICAMENTE el texto de la sinopsis.
-        4. Contexto: Utiliza el título y géneros para entender el contexto.
+        **Reglas Inquebrantables:**
+        1.  **REGLA MÁS IMPORTANTE**: La sinopsis DEBE tener **entre {min_words} y {max_words} palabras**. Es un límite estricto e innegociable.
+        2.  **FORMATO DE SALIDA**: SOLO devolverás el texto de la sinopsis. NADA MÁS. Está terminantemente prohibido incluir explicaciones, comentarios, razonamientos o cualquier tipo de etiqueta como `<think>`.
+        3.  **TONO**: El estilo debe ser épico, cinematográfico y con 'punch', como un tráiler. Céntrate en el conflicto.
+        4.  **CONTENIDO**: Usa la sinopsis original como inspiración, pero crea un texto nuevo y emocionante.
 
-        Información de la Película:
-        - Título Original: "{sel.get("titulo")}"
-        - Sinopsis Original (en inglés): "{sel.get("sinopsis")}"
-        - Géneros: {', '.join(sel.get("generos", []))}
-
-        Ahora, genera la nueva sinopsis en castellano.
+        **Sinopsis Original de Inspiración:** "{sel.get("sinopsis")}"
         """
         
         try:
             response = ollama.chat(model=model, messages=[{'role': 'user', 'content': initial_prompt}])
             generated_text = response['message']['content'].strip()
+            # CAMBIO: Limpieza de seguridad anti-<think>
+            if '<think>' in generated_text:
+                generated_text = re.sub(r'<think>.*</think>', '', generated_text, flags=re.DOTALL).strip()
+            
             word_count = count_words(generated_text)
 
-            if min_words <= word_count <= (max_words + margin):
+            if min_words <= word_count <= max_words:
                 logging.info(f"Narración generada con éxito ({word_count} palabras).")
                 return generated_text
             
+            # CAMBIO: Lógica de corrección reforzada.
             if word_count < min_words:
                 logging.warning(f"Texto demasiado corto ({word_count} palabras). Pidiendo expansión...")
-                expansion_prompt = f"El siguiente texto es demasiado corto. Expándelo a unas {min_words}-{max_words} palabras, manteniendo el tono épico y cinematográfico. Devuelve solo el párrafo completo.\nTexto a expandir: \"{generated_text}\""
-                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': expansion_prompt}])
+                correction_prompt = f"Este texto es demasiado corto: \"{generated_text}\". Reescríbelo para que tenga **estrictamente entre {min_words} y {max_words} palabras**, manteniendo el tono épico. Devuelve solo el texto final."
+                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': correction_prompt}])
                 generated_text = response['message']['content'].strip()
-                word_count = count_words(generated_text)
 
-            elif word_count > (max_words + margin):
+            elif word_count > max_words:
                 logging.warning(f"Texto demasiado largo ({word_count} palabras). Pidiendo resumen...")
-                refinement_prompt = f"El siguiente texto es demasiado largo. Resúmelo a unas {min_words}-{max_words} palabras, manteniendo el tono épico y los detalles clave. Devuelve solo el párrafo completo.\nTexto a resumir: \"{generated_text}\""
-                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': refinement_prompt}])
+                correction_prompt = f"Este texto es demasiado largo: \"{generated_text}\". Reescríbelo para que tenga **estrictamente entre {min_words} y {max_words} palabras**, manteniendo el tono épico. Devuelve solo el texto final."
+                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': correction_prompt}])
                 generated_text = response['message']['content'].strip()
-                word_count = count_words(generated_text)
 
-            if min_words <= word_count <= (max_words + margin):
+            if '<think>' in generated_text:
+                generated_text = re.sub(r'<think>.*</think>', '', generated_text, flags=re.DOTALL).strip()
+            word_count = count_words(generated_text)
+
+            if min_words <= word_count <= max_words:
                 logging.info(f"Narración corregida con éxito ({word_count} palabras).")
                 return generated_text
             else:
@@ -110,7 +103,7 @@ def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=70, min
             logging.error(f"Error al generar narración con Ollama: {e}")
             return None
     
-    logging.warning(f"No se logró el rango después de {max_retries} intentos. Usando la última versión ({word_count} palabras).")
+    logging.error(f"No se logró el rango de palabras después de {max_retries} intentos. Devolviendo último resultado.")
     return generated_text
 
 def _get_tmp_voice_path(tmdb_id: str, slug: str, tmpdir: Path) -> Path:
