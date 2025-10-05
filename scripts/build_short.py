@@ -199,7 +199,8 @@ def main():
             fps=60, 
             preset="fast", # slow, medium, fast
             bitrate="50000k", # 50 Mbps para forzar la clasificación 4K
-            ffmpeg_params=["-crf", "18", "-movflags", "faststart"] 
+            ffmpeg_params=["-crf", "18", "-movflags", "faststart"],
+            logger=None
         )
         logging.info(f"🎬 Short generado en: {out_file}")
 
