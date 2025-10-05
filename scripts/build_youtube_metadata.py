@@ -74,7 +74,7 @@ def main():
     fecha_estreno_str = sel.get("fecha_estreno", "").replace('-', '/') # Formatear fecha
 
     # Construir el título final con el formato anterior
-    youtube_title = f"#{sel.get('titulo')} Trailer - {plataforma_principal} Con Fecha de Estreno {fecha_estreno_str}"
+    youtube_title = f"#{sel.get('titulo')} - {plataforma_principal} - {fecha_estreno_str}"
 
     # --- Fin del bloque para reemplazar ---
 
