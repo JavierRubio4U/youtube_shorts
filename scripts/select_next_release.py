@@ -60,7 +60,8 @@ def has_high_quality_format(trailer_url: str, min_height=1080) -> bool:
         'logger': SilentLogger(),
         'extractor_args': {'youtube': {'player_client': 'web,android'}},  # Cambio: Evita clientes que causen 403
         'forceipv4': True,  # Cambio: Fuerza IPv4 para estabilidad
-        'format': 'bestvideo[height>=1080][vcodec^=avc1]+bestaudio/best',  # Cambio: Prefiere AVC para evitar premium
+        # CÓDIGO CORREGIDO (MÁS FLEXIBLE)
+        'format': 'bestvideo[height>=1080]+bestaudio/best',
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -372,11 +373,13 @@ def pick_next():
     # === Nuevo código para el log de candidatos ===
     print(f"\n📝 Lista de candidatos (Total: {len(filtered_trending_movies)}):")
     print("----------------------------")
+    
     # Eliminamos el límite [:20] para mostrar toda la lista
     for i, movie in enumerate(filtered_trending_movies):
         print(f"  {i+1}. {movie['titulo']} ({movie['fecha_estreno']})")
         print(f"     Popularidad: {movie['popularity']:.1f}")
         print(f"     Prioridad: Estreno Digital = {'Sí' if movie.get('fecha_estreno_digital') else 'No'}")
+    
     print("----------------------------\n")
     # ===============================================
 
