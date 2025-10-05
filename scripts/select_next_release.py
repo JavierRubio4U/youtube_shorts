@@ -219,8 +219,30 @@ def enrich_movie(mid):
                 elif rd.get("type") == 5 and not physical_date:
                     physical_date = rd.get("release_date").split('T')[0]
     
+    # --- NUEVO CÓDIGO PARA PEGAR ---
+
+    platforms = []
     flatrate = [p["provider_name"] for p in providers_es.get("flatrate", [])]
-    platforms = flatrate if flatrate else ["TBD"]
+
+    if flatrate:
+        platforms = flatrate
+    else:
+        # Si no hay streaming, comprobamos si es un estreno de cine en España
+        is_cinema_release = False
+        release_dates = (data.get("release_dates", {}) or {}).get("results", [])
+        rel_es = next((rel for rel in release_dates if rel.get("iso_3166_1") == "ES"), None)
+        if rel_es:
+            # Tipos de estreno: 2 = Theatrical (limited), 3 = Theatrical (general)
+            release_types = {rd.get("type") for rd in rel_es.get("release_dates", [])}
+            if 2 in release_types or 3 in release_types:
+                is_cinema_release = True
+
+        if is_cinema_release:
+            platforms = ["Cine"]
+        else:
+            platforms = ["TBD"] # Si no es ni cine ni streaming
+
+    # --- FIN DEL NUEVO CÓDIGO ---
 
     return {
         "id": data.get("id"), 
@@ -244,17 +266,29 @@ def enrich_movie(mid):
         "hype": data.get("hype"),
     }
 
+# --- REEMPLAZA EL BLOQUE DE LA FUNCIÓN get_trending_by_type ---
+
 def get_trending_by_type(media_type: str, time_window: str, category: str):
-    logging.info(f"Obteniendo top 20 trending semanal de {media_type} en {category}...")
-    
-    results = api_get(f"/trending/{media_type}/{time_window}", {"language": "es-ES"}).get("results", [])
+    logging.info(f"Obteniendo top trending semanal de {media_type} en {category} (páginas 1-3)...")
+
+    # NUEVO: Pedimos las 3 primeras páginas para tener hasta 60 películas de base
+    all_results = []
+    for page in range(1, 4): # Pide las páginas 1, 2 y 3
+        try:
+            results = api_get(f"/trending/{media_type}/{time_window}", {"language": "es-ES", "page": page}).get("results", [])
+            all_results.extend(results)
+        except Exception as e:
+            logging.warning(f"Fallo al obtener la página {page} de trending: {e}")
+            break # Si una página falla, no continuamos
+
     filtered_results = []
-    
-    for m in results:
+
+    for m in all_results:
+        # El resto de tu lógica de filtrado sigue igual...
         providers = api_get(f"/movie/{m['id']}/watch/providers", {"language": "es-ES"}).get("results", {}).get("ES", {})
         release_dates = api_get(f"/movie/{m['id']}/release_dates").get("results", [])
         rel_es = next((rel for rel in release_dates if rel.get("iso_3166_1") == "ES"), None)
-        
+
         is_cinema = False
         if rel_es:
             release_types = [rd['type'] for rd in rel_es['release_dates']]
@@ -267,17 +301,15 @@ def get_trending_by_type(media_type: str, time_window: str, category: str):
 
         if (category == "Cine" and is_cinema) or (category == "Streaming" and is_streaming):
             filtered_results.append(m)
-        
-        if len(filtered_results) >= 20:
-            break
 
     enriched_results = []
-    for m in filtered_results[:20]:
+    # Aumentamos el límite de enriquecimiento para procesar la lista más grande
+    for m in filtered_results[:40]: 
         enriched = enrich_movie(m["id"])
         if enriched and enriched["poster_principal"]:
             enriched['category'] = category
             enriched_results.append(enriched)
-    
+
     return enriched_results
 
 # --- FUNCIÓN PRINCIPAL DE SELECCIÓN RE-IMPLEMENTADA ---
@@ -338,9 +370,10 @@ def pick_next():
             continue
 
     # === Nuevo código para el log de candidatos ===
-    print("\n📝 Lista de candidatos Top 20:")
+    print(f"\n📝 Lista de candidatos (Total: {len(filtered_trending_movies)}):")
     print("----------------------------")
-    for i, movie in enumerate(filtered_trending_movies[:20]):
+    # Eliminamos el límite [:20] para mostrar toda la lista
+    for i, movie in enumerate(filtered_trending_movies):
         print(f"  {i+1}. {movie['titulo']} ({movie['fecha_estreno']})")
         print(f"     Popularidad: {movie['popularity']:.1f}")
         print(f"     Prioridad: Estreno Digital = {'Sí' if movie.get('fecha_estreno_digital') else 'No'}")

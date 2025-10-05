@@ -67,8 +67,16 @@ def main():
 
     year = sel.get("fecha_estreno", "N/A").split('-')[0]
     
-    # Usamos el título final (traducido si es posible)
-    youtube_title = f"{final_title} ({year}) | Tráiler Oficial Español"
+    # --- Reemplazar con este bloque ---
+
+    # Obtener la primera plataforma y la fecha
+    plataforma_principal = sel.get("platforms", ["TBD"])[0]
+    fecha_estreno_str = sel.get("fecha_estreno", "").replace('-', '/') # Formatear fecha
+
+    # Construir el título final con el formato anterior
+    youtube_title = f"#{sel.get('titulo')} Trailer - {plataforma_principal} Con Fecha de Estreno {fecha_estreno_str}"
+
+    # --- Fin del bloque para reemplazar ---
 
     plataformas = sel.get("platforms", [])
     if plataformas:
