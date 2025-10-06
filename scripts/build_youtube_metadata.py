@@ -1,52 +1,64 @@
 # scripts/build_youtube_metadata.py
-# scripts/build_youtube_metadata.py
 import json
 from pathlib import Path
 import logging
-import ollama
-import re # <-- AÑADIDO POR SEGURIDAD
+import re
+import google.generativeai as genai  # CAMBIO: Importamos la librería de Google
+import sys  # CAMBIO: Necesario para sys.exit()
 
 # --- Configuración ---
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 SEL_FILE = STATE / "next_release.json"
 META_FILE = STATE / "youtube_metadata.json"
+CONFIG_DIR = ROOT / "config"  # CAMBIO: Añadido para la clave de API
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- Constantes de IA ---
-# CAMBIO: Modelo final establecido tras las pruebas.
-OLLAMA_MODEL = 'qwen3:14b' 
+# CAMBIO: Usamos el modelo de Gemini Pro
+GEMINI_MODEL = 'gemini-2.5-pro'
+
+# --- Carga de la clave de API de Google ---
+# CAMBIO: Añadido bloque de carga de la API Key de Gemini
+try:
+    GOOGLE_CONFIG_FILE = CONFIG_DIR / "google_api_key.txt"
+    with open(GOOGLE_CONFIG_FILE, "r") as f:
+        GOOGLE_API_KEY = f.read().strip()
+    if not GOOGLE_API_KEY:
+        raise ValueError("La clave de API de Google está vacía.")
+    genai.configure(api_key=GOOGLE_API_KEY)
+except (FileNotFoundError, ValueError) as e:
+    logging.error(f"Error crítico al cargar la clave de API de Google: {e}. Asegúrate de que 'google_api_key.txt' existe en '/config' y no está vacío.")
+    sys.exit(1)
 
 # --- Función de traducción de título ---
 def _translate_title_with_ai(title: str) -> str | None:
-    """Usa Ollama para traducir un título con el prompt 'blindado' optimizado."""
+    """Usa Gemini para traducir un título con el prompt 'blindado' optimizado."""
     
-    # CAMBIO: Usando el prompt "blindado" final para títulos.
+    # El prompt es idéntico al que validamos en gemini.py, es perfecto para esta tarea.
     prompt = f"""
     Eres un experto en la localización de títulos de películas para el mercado de España.
     Tu ÚNICA tarea es traducir el siguiente título de película al castellano.
 
     **Reglas Inquebrantables:**
-    1.  **FORMATO DE SALIDA**: SOLO devolverás el texto del título traducido. NADA MÁS. Está terminantemente prohibido incluir explicaciones, comentarios, razonamientos o cualquier tipo de etiqueta como `<think>`.
+    1.  **FORMATO DE SALIDA**: SOLO devolverás el texto del título traducido. NADA MÁS. Está terminantemente prohibido incluir explicaciones, comentarios, razonamientos o cualquier tipo de texto adicional.
     2.  **LÓGICA DE TRADUCCIÓN**: TRADUCE SIEMPRE el título, a menos que sea una marca o franquicia mundialmente famosa que NUNCA se traduce en España (ej: Star Wars, Pulp Fiction, Avatar). En caso de duda, la acción por defecto es TRADUCIR.
     3.  **SUBTÍTULOS**: Si el título contiene ':', mantén la parte principal y traduce solo el subtítulo.
 
     **Título a traducir:** "{title}"
     """
     try:
-        logging.info(f"Traduciendo título '{title}' con el modelo '{OLLAMA_MODEL}'...")
-        response = ollama.chat(model=OLLAMA_MODEL, messages=[{'role': 'user', 'content': prompt}])
-        translation = response['message']['content'].strip().strip('"')
-        
-        # CAMBIO: Limpieza de seguridad anti-<think>
-        if '<think>' in translation:
-            translation = re.sub(r'<think>.*</think>', '', translation, flags=re.DOTALL).strip()
+        logging.info(f"Traduciendo título '{title}' con el modelo '{GEMINI_MODEL}'...")
+        # CAMBIO: Lógica de generación con Gemini
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content(prompt)
+        translation = response.text.strip().strip('"')
             
         logging.info(f"Título traducido como: '{translation}'")
         return translation
     except Exception as e:
-        logging.error(f"Error al contactar con el modelo de IA Ollama: {e}")
+        logging.error(f"Error al contactar con la API de Gemini: {e}")
         return None
 
 
@@ -60,23 +72,18 @@ def main():
     
     original_title = sel.get("titulo", "Sin Título")
     
-    # --- PASO DE TRADUCCIÓN (AÑADIDO) ---
+    # --- PASO DE TRADUCCIÓN (AHORA CON GEMINI) ---
     translated_title = _translate_title_with_ai(original_title)
     # Si la traducción falla, usamos el título original como fallback
     final_title = translated_title if translated_title else original_title
 
     year = sel.get("fecha_estreno", "N/A").split('-')[0]
     
-    # --- Reemplazar con este bloque ---
-
-    # Obtener la primera plataforma y la fecha
+    # CAMBIO: Usamos el título traducido (final_title) para el formato del título de YouTube
     plataforma_principal = sel.get("platforms", ["TBD"])[0]
-    fecha_estreno_str = sel.get("fecha_estreno", "").replace('-', '/') # Formatear fecha
+    fecha_estreno_str = sel.get("fecha_estreno", "").replace('-', '/')
 
-    # Construir el título final con el formato anterior
-    youtube_title = f"#{sel.get('titulo')} - {plataforma_principal} - {fecha_estreno_str}"
-
-    # --- Fin del bloque para reemplazar ---
+    youtube_title = f"#{final_title.replace(' ', '')} - {plataforma_principal} - {fecha_estreno_str}"
 
     plataformas = sel.get("platforms", [])
     if plataformas:
