@@ -3,11 +3,10 @@ import json
 import re
 import subprocess
 from pathlib import Path
-import ollama
+import google.generativeai as genai  # CAMBIO: Importamos la librería de Google
 from slugify import slugify
 from moviepy import AudioFileClip, concatenate_audioclips, AudioClip
 import moviepy.audio.fx as afx
-from langdetect import detect, DetectorFactory
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")
 import logging
@@ -18,9 +17,7 @@ import requests
 import tempfile
 import sys
 
-DetectorFactory.seed = 0
-
-# --- Rutas y dirs ---
+# --- Rutas y directorios ---
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 STATE.mkdir(parents=True, exist_ok=True)
@@ -30,33 +27,45 @@ CONFIG_DIR = ROOT / "config"
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- Constantes ---
-# CAMBIO: Modelo final establecido tras las pruebas.
-OLLAMA_MODEL = 'qwen3:14b' 
+# CAMBIO: Usamos el modelo de Gemini Pro
+GEMINI_MODEL = 'gemini-2.5-pro'
+
+# --- Carga de la clave de API de Google ---
+try:
+    GOOGLE_CONFIG_FILE = CONFIG_DIR / "google_api_key.txt"
+    with open(GOOGLE_CONFIG_FILE, "r") as f:
+        GOOGLE_API_KEY = f.read().strip()
+    if not GOOGLE_API_KEY:
+        raise ValueError("La clave de API de Google está vacía.")
+    genai.configure(api_key=GOOGLE_API_KEY)
+except (FileNotFoundError, ValueError) as e:
+    logging.error(f"Error crítico al cargar la clave de API de Google: {e}. Asegúrate de que 'google_api_key.txt' existe en '/config' y no está vacío.")
+    sys.exit(1)
 
 # --- Funciones de texto ---
 def count_words(text: str) -> int:
-    """Conteador de palabras más preciso."""
+    """Contador de palabras preciso."""
     return len(re.findall(r'\b\w+\b', text))
 
 # --- Funciones de IA ---
-def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=70, min_words=50, max_retries=3) -> str | None:
+def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min_words=50, max_retries=3) -> str | None:
     """
-    Genera una sinopsis con Ollama, usando el prompt y la lógica de corrección optimizados.
+    Genera una narración con Gemini, manteniendo el prompt épico y la lógica de corrección.
     """
     attempt = 0
     generated_text = ""
     
     while attempt < max_retries:
         attempt += 1
-        logging.info(f"Generando sinopsis (Intento {attempt}/{max_retries}) usando el modelo '{model}'...")
+        logging.info(f"Generando narración (Intento {attempt}/{max_retries}) usando el modelo '{model}'...")
 
-        # CAMBIO: Usando el prompt "blindado" final para sinopsis.
+        # Mantenemos el prompt original para la narración, que busca un tono épico.
         initial_prompt = f"""
         Eres un guionista profesional experto en marketing cinematográfico. Tu única misión es crear una sinopsis corta y potente para la película '{sel.get("titulo")}' en castellano.
 
         **Reglas Inquebrantables:**
         1.  **REGLA MÁS IMPORTANTE**: La sinopsis DEBE tener **entre {min_words} y {max_words} palabras**. Es un límite estricto e innegociable.
-        2.  **FORMATO DE SALIDA**: SOLO devolverás el texto de la sinopsis. NADA MÁS. Está terminantemente prohibido incluir explicaciones, comentarios, razonamientos o cualquier tipo de etiqueta como `<think>`.
+        2.  **FORMATO DE SALIDA**: SOLO devolverás el texto de la sinopsis. NADA MÁS. Está terminantemente prohibido incluir explicaciones o comentarios.
         3.  **TONO**: El estilo debe ser épico, cinematográfico y con 'punch', como un tráiler. Céntrate en el conflicto.
         4.  **CONTENIDO**: Usa la sinopsis original como inspiración, pero crea un texto nuevo y emocionante.
 
@@ -64,33 +73,28 @@ def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=70, min
         """
         
         try:
-            response = ollama.chat(model=model, messages=[{'role': 'user', 'content': initial_prompt}])
-            generated_text = response['message']['content'].strip()
-            # CAMBIO: Limpieza de seguridad anti-<think>
-            if '<think>' in generated_text:
-                generated_text = re.sub(r'<think>.*</think>', '', generated_text, flags=re.DOTALL).strip()
-            
+            # CAMBIO: Lógica de generación con Gemini
+            gemini_model = genai.GenerativeModel(model)
+            response = gemini_model.generate_content(initial_prompt)
+            generated_text = response.text.strip()
             word_count = count_words(generated_text)
 
             if min_words <= word_count <= max_words:
                 logging.info(f"Narración generada con éxito ({word_count} palabras).")
                 return generated_text
             
-            # CAMBIO: Lógica de corrección reforzada.
             if word_count < min_words:
                 logging.warning(f"Texto demasiado corto ({word_count} palabras). Pidiendo expansión...")
                 correction_prompt = f"Este texto es demasiado corto: \"{generated_text}\". Reescríbelo para que tenga **estrictamente entre {min_words} y {max_words} palabras**, manteniendo el tono épico. Devuelve solo el texto final."
-                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': correction_prompt}])
-                generated_text = response['message']['content'].strip()
+                response = gemini_model.generate_content(correction_prompt)
+                generated_text = response.text.strip()
 
             elif word_count > max_words:
                 logging.warning(f"Texto demasiado largo ({word_count} palabras). Pidiendo resumen...")
                 correction_prompt = f"Este texto es demasiado largo: \"{generated_text}\". Reescríbelo para que tenga **estrictamente entre {min_words} y {max_words} palabras**, manteniendo el tono épico. Devuelve solo el texto final."
-                response = ollama.chat(model=model, messages=[{'role': 'user', 'content': correction_prompt}])
-                generated_text = response['message']['content'].strip()
-
-            if '<think>' in generated_text:
-                generated_text = re.sub(r'<think>.*</think>', '', generated_text, flags=re.DOTALL).strip()
+                response = gemini_model.generate_content(correction_prompt)
+                generated_text = response.text.strip()
+            
             word_count = count_words(generated_text)
 
             if min_words <= word_count <= max_words:
@@ -100,12 +104,13 @@ def _generate_narration_with_ai(sel: dict, model=OLLAMA_MODEL, max_words=70, min
                 logging.warning(f"Aún fuera del rango ({word_count} palabras) tras la corrección. Reintentando...")
 
         except Exception as e:
-            logging.error(f"Error al generar narración con Ollama: {e}")
+            logging.error(f"Error al generar narración con Gemini: {e}")
             return None
     
     logging.error(f"No se logró el rango de palabras después de {max_retries} intentos. Devolviendo último resultado.")
     return generated_text
 
+# (El resto de funciones de ElevenLabs y audio permanecen igual, no necesitan cambios)
 def _get_tmp_voice_path(tmdb_id: str, slug: str, tmpdir: Path) -> Path:
     return tmpdir / f"{tmdb_id}_{slug}_narracion.wav"
 
@@ -126,8 +131,8 @@ def _get_elevenlabs_api_key() -> str | None:
         return None
 
 def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_duration: float | None = None) -> tuple[str | None, Path | None]:
-    logging.info("🔎 Generando sinopsis con IA local...")
-    narracion = _generate_narration_with_ai(sel, model=OLLAMA_MODEL)
+    logging.info("🔎 Generando narración con IA (Gemini)...")
+    narracion = _generate_narration_with_ai(sel, model=GEMINI_MODEL)
     
     if narracion:
         logging.info(f"Narración generada completa: {narracion}")

@@ -1,19 +1,19 @@
 # scripts/build_short.py
 import time
 import unicodedata
-import random  # Para música aleatoria
+import random
 from pathlib import Path
 import json, os, logging, re
 from PIL import Image
 import numpy as np
 
-import separate_narration  # Nuevo script para narración separada
+import ai_narration  # CAMBIO: Importamos el script de narración con Gemini
 import tempfile
 import shutil
 from slugify import slugify
 # Imports de moviepy
 from moviepy import (VideoFileClip, ImageClip, AudioFileClip, AudioClip,
-                     CompositeVideoClip, ColorClip, # ColorClip es necesario para el fondo
+                     CompositeVideoClip, ColorClip,
                      CompositeAudioClip, concatenate_videoclips, concatenate_audioclips)
 import moviepy.audio.fx as afx
 
@@ -25,16 +25,15 @@ SHORTS_DIR = ROOT / "output" / "shorts"
 MANIFEST = STATE / "assets_manifest.json"
 SEL_FILE = STATE / "next_release.json"
 
-W, H = 2160, 3840  # CAMBIO: 4K vertical (2160x3840)
-SQUARE_SIZE = 2160 # CAMBIO: El cuadrado debe ser 2160x2160
-INTRO_DURATION = 4  # Duración de la intro con la imagen
-CLIP_DURATION = 6  # Duración de los clips de video
-MAX_BACKDROPS = 4  # Máximo de clips
+W, H = 2160, 3840
+SQUARE_SIZE = 2160
+INTRO_DURATION = 4
+CLIP_DURATION = 6
+MAX_BACKDROPS = 4
 
 def clip_from_img(path: Path, dur: float) -> ImageClip:
     """Crea un clip de video a partir de una imagen con duración dada."""
     try:
-        # Esta función mantiene el recorte que llena la pantalla para el póster inicial
         img_clip = ImageClip(str(path), duration=dur)
         img_w, img_h = img_clip.size
         target_ratio = W / H
@@ -55,39 +54,17 @@ def clip_from_img(path: Path, dur: float) -> ImageClip:
 
 def resize_to_9_16(clip: VideoFileClip) -> VideoFileClip:
     """
-    Recorta el centro del clip a un formato cuadrado (1080x1080) y lo coloca
-    en un fondo vertical 9:16 con bandas negras.
+    Recorta el centro del clip a un formato cuadrado y lo coloca en un fondo vertical 9:16.
     """
-    
     logging.info(f"Dimensiones originales del clip: {clip.size[0]}x{clip.size[1]}")
-
-# Paso 1: Recortar el centro del clip original a una proporción cuadrada.
-    # El ancho será el menor entre el ancho del clip y la altura del clip,
-    # reescalado para asegurar que la porción central es la que usamos.
     
-    # Tomamos el centro del clip de origen con dimensiones SQUARE_SIZE x SQUARE_SIZE
-    # Si el clip original es 1920x1080 y SQUARE_SIZE=1440:
-    # 1. Recortamos horizontalmente, dejando un clip de (1440/1080)*1920 x 1080 (aprox)
-    # 2. Reescalamos el recorte resultante a 1440x1440
-    
-    # ----------------------------------------------------------------------------------
-    # CAMBIO: Recorte y Reescalado forzado a SQUARE_SIZE x SQUARE_SIZE
-    # ----------------------------------------------------------------------------------
-    
-    # Recortar horizontalmente (si es 16:9), manteniendo la altura de 1080.
-    # Esto resulta en un clip de 1920x1080 -> 1080x1080
     square_clip_intermediate = clip.cropped(x_center=clip.w / 2, width=clip.h)
-    
-    # Forzar el reescalado a la dimensión final del cuadrado (1440x1440)
     square_clip = square_clip_intermediate.resized((SQUARE_SIZE, SQUARE_SIZE))
 
-    logging.info(f"Dimensiones tras recorte y reescalado forzado a cuadrado: {square_clip.size[0]}x{square_clip.size[1]}")
+    logging.info(f"Dimensiones tras recorte y reescalado a cuadrado: {square_clip.size[0]}x{square_clip.size[1]}")
     
-    # Paso 2: Crear el fondo negro vertical final.
     background = ColorClip(size=(W, H), color=(0, 0, 0), duration=clip.duration)
 
-    # Paso 3: Colocar el clip cuadrado (que ya es 1080x1080) en el centro del fondo.
-    # Esto creará las bandas negras superior e inferior automáticamente.
     final_clip = CompositeVideoClip([
         background,
         square_clip.with_position("center")
@@ -114,7 +91,8 @@ def main():
         logging.error("No hay clips de video disponibles.")
         return None
 
-    narracion, voice_path = separate_narration.main()
+    # CAMBIO: Llamamos directamente a la función main de nuestro script de narración con Gemini.
+    narracion, voice_path = ai_narration.main()
     if not voice_path or not os.path.exists(voice_path):
         logging.error("No se pudo obtener narración.")
         return None
@@ -138,7 +116,6 @@ def main():
                 opened_video_clips.append(clip)
                 
                 sub_clip = clip.subclipped(0, CLIP_DURATION)
-                # Esta llamada ahora usa la nueva lógica de recorte cuadrado
                 resized_clip = resize_to_9_16(sub_clip)
                 video_clips_resized.append(resized_clip)
             except Exception as e:
@@ -197,8 +174,8 @@ def main():
             str(out_file),
             codec="libx264",
             fps=60, 
-            preset="fast", # slow, medium, fast
-            bitrate="50000k", # 50 Mbps para forzar la clasificación 4K
+            preset="fast",
+            bitrate="50000k",
             ffmpeg_params=["-crf", "18", "-movflags", "faststart"],
             logger=None
         )
@@ -224,14 +201,12 @@ def main():
 
 def cleanup_temp_files(tmpdir):
     time.sleep(2)
-    for file in os.listdir(tmpdir):
-        file_path = os.path.join(tmpdir, file)
-        if os.path.isfile(file_path):
-            try:
-                os.remove(file_path)
-            except PermissionError as e:
-                logging.warning(f"No se pudo eliminar {file} por bloqueo en {tmpdir}: {e}")
-    logging.info(f"Archivos temporales en {tmpdir} eliminados (o intentados).")
+    # CAMBIO: Usamos shutil.rmtree para un borrado más robusto del directorio temporal
+    try:
+        shutil.rmtree(tmpdir)
+        logging.info(f"Directorio temporal {tmpdir} eliminado con éxito.")
+    except Exception as e:
+        logging.warning(f"No se pudo eliminar el directorio temporal {tmpdir}: {e}")
 
 if __name__ == "__main__":
     main()
