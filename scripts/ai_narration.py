@@ -27,7 +27,7 @@ GEMINI_MODEL = 'gemini-2.5-pro'  # Revertido: Disponible en tu entorno
 def count_words(text: str) -> int:
     return len(re.findall(r'\b\w+\b', text))
 
-def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=85, min_words=70, max_retries=5) -> str | None:
+def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=80, min_words=65, max_retries=5) -> str | None:
     logging.info(f"Usando modelo Gemini: {model}")
     initial_prompt = f"""
     Eres "El Sinóptico Gamberro", el terror de los departamentos de marketing. 
