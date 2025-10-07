@@ -50,12 +50,11 @@ def count_words(text: str) -> int:
 # --- Funciones de IA ---
 def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min_words=50, max_retries=3) -> str | None:
     """
-    Genera una narración con Gemini, usando el prompt de estilo gamberro y humorístico.
+    Genera una narración con Gemini, usando un prompt optimizado para una locución dinámica.
     """
     attempt = 0
     generated_text = ""
     
-    # Mantenemos los márgenes de la versión de sinopsis para flexibilidad
     margin = 5
     lower_bound = min_words - margin
     upper_bound = max_words + margin
@@ -64,17 +63,20 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min
         attempt += 1
         logging.info(f"Generando narración (Intento {attempt}/{max_retries}) usando el modelo '{model}'...")
 
-        # <<< CAMBIO: Prompt principal con el tono gamberro >>>
+        # <<< CAMBIO: Prompt mejorado para guiar el ritmo de la narración >>>
         initial_prompt = f"""
-        Eres "El Sinóptico Gamberro", el terror de los departamentos de marketing. Tu superpoder es contar de qué va una película como si se la estuvieras resumiendo a un colega en un bar, con cero paciencia para tonterías.
+        Eres "El Sinóptico Gamberro", un crack resumiendo pelis para redes sociales. Tu voz es la de un colega contándote algo increíble en un bar.
 
-        Tu misión, si la aceptas (y más te vale), es crear una sinopsis brutalmente honesta y divertida para la película '{sel.get("titulo")}' en castellano.
+        Tu misión es crear un guion corto y brutalmente divertido para la película '{sel.get("titulo")}' en castellano.
 
-        **Las Reglas de Oro (o te vas a la calle):**
-        1.  **LA MÁS IMPORTANTE**: Clava el texto **idealmente entre {min_words} y {max_words} palabras**. No me hagas sacar la calculadora, sé profesional.
-        2.  **FORMATO**: Devuelve SOLO el texto de la sinopsis. Sin saludos, sin explicaciones, sin "Aquí tienes...". Si escribes algo más, el script explota.
-        3.  **TONO**: 100% gamberro, coloquial y con humor negro o ironía. Pasa del lenguaje cursi de tráiler. Sé el amigo que dice "tienes que ver esta mierda" y te convence.
-        4.  **PROHIBIDO**: Nada de clichés como "una aventura épica", "un viaje inolvidable" o "personajes que te robarán el corazón". Si veo una de esas frases, te bajo el sueldo.
+        **Las Reglas de Oro:**
+        1.  **RITMO Y ENERGÍA**: ¡Esto es clave! Escribe con un ritmo rápido y dinámico, como si grabaras un Short para YouTube. Usa frases cortas y directas. La puntuación (comas, puntos, guiones) es tu amiga para crear pausas y dar énfasis a la locución.
+        2.  **LÍMITE DE PALABRAS**: Entre {min_words} y {max_words} palabras. Sin pasarse.
+        3.  **FORMATO**: SOLO el texto del guion. Sin saludos, sin explicaciones.
+        4.  **TONO**: 100% gamberro, coloquial, con ironía. Cero lenguaje de marketing.
+        5.  **PROHIBIDO**: Clichés como "una aventura épica", "un viaje inolvidable", etc.
+
+        **Ejemplo del estilo y ritmo que busco:** "A ver, que no te líen. El prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito en el jardín. Y claro, ahora tiene superpoderes y la lía pardísima. Un desastre de superhéroe, vamos."
 
         **Aquí tienes la sinopsis oficial (la versión aburrida para que te inspires y la destroces):** "{sel.get("sinopsis")}"
         """
@@ -85,21 +87,20 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min
             generated_text = response.text.strip()
             word_count = count_words(generated_text)
             
-            # Usamos los límites con margen para la comprobación
             if lower_bound <= word_count <= upper_bound:
                 logging.info(f"Narración generada con éxito ({word_count} palabras).")
                 return generated_text
             
-            # <<< CAMBIO: Prompts de corrección con el mismo tono >>>
+            # Los prompts de corrección se mantienen, ya son bastante directos
             if word_count < lower_bound:
                 logging.warning(f"Texto demasiado corto ({word_count} palabras). Pidiendo expansión...")
-                correction_prompt = f"Te has quedado corto, colega. Este texto: \"{generated_text}\" necesita más chicha. Estíralo para que tenga **entre {min_words} y {max_words} palabras**, pero sin perder la mala leche. Solo el texto final."
+                correction_prompt = f"Te has quedado corto, colega. Este texto: \"{generated_text}\" necesita más chicha. Estíralo para que tenga **entre {min_words} y {max_words} palabras**, pero sin perder la mala leche y el ritmo. Solo el texto final."
                 response = gemini_model.generate_content(correction_prompt)
                 generated_text = response.text.strip()
 
             elif word_count > upper_bound:
                 logging.warning(f"Texto demasiado largo ({word_count} palabras). Pidiendo resumen...")
-                correction_prompt = f"Te has pasado de largo, máquina. Este texto: \"{generated_text}\" es muy largo. Métele tijera y déjalo **entre {min_words} y {max_words} palabras**, manteniendo el tono. Solo el texto final."
+                correction_prompt = f"Te has pasado de largo, máquina. Este texto: \"{generated_text}\" es muy largo. Métele tijera y déjalo **entre {min_words} y {max_words} palabras**, manteniendo el tono y el ritmo. Solo el texto final."
                 response = gemini_model.generate_content(correction_prompt)
                 generated_text = response.text.strip()
             
@@ -172,7 +173,10 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_d
 
 def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, slug: str, video_duration: float | None = None) -> Path | None:
     try:
-        # <<< CAMBIO 1: Nuevo ID de la voz Andaluza >>>
+        # <<< CAMBIO 1: Factor de velocidad para que el usuario pueda ajustarlo fácilmente >>>
+        # 1.0 = velocidad normal. 1.15 = 15% más rápido. 1.2 = 20% más rápido.
+        SPEED_FACTOR = 1.10
+
         VOICE_ID = "2VUqK4PEdMj16L6xTN4J"
         API_KEY = _get_elevenlabs_api_key()
         if not API_KEY:
@@ -180,24 +184,16 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
             return None
 
         client = ElevenLabs(api_key=API_KEY)
-        user_subscription_data = client.user.subscription.get()
-        character_limit = user_subscription_data.character_limit or float('inf')
-        character_count = user_subscription_data.character_count or 0
-
-        if character_count > (0.9 * character_limit):
-            logging.warning(f"¡Cuidado! Te estás quedando sin cuota. Usados: {character_count}/{character_limit}")
-
-        # <<< CAMBIO 2: Añadimos los ajustes de voz para controlar la entonación >>>
-        # - stability: 0.0 (más variable) a 1.0 (más monótono). Usamos 0.3 para más expresividad.
-        # - style: 0.0 (normal) a 1.0 (muy exagerado). Usamos 0.75 para un estilo muy marcado.
-        # - similarity_boost: No lo tocamos, lo dejamos por defecto.
+        
+        # <<< CAMBIO 2: Ajustes de voz más extremos para mayor expresividad >>>
+        # Bajamos la estabilidad y subimos la exageración de estilo.
         audio_stream = client.text_to_speech.convert(
             voice_id=VOICE_ID,
             text=text,
             model_id="eleven_multilingual_v2",
             voice_settings={
-                "stability": 0.3,
-                "style": 0.75,
+                "stability": 0.2,
+                "style": 0.9,
                 "use_speaker_boost": True
             }
         )
@@ -213,6 +209,12 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         temp_voice_path.unlink(missing_ok=True)
 
         voice_clip = AudioFileClip(str(temp_wav_path))
+
+        # <<< CAMBIO 3: Aceleramos el clip de audio usando el factor definido arriba >>>
+        if SPEED_FACTOR != 1.0:
+            logging.info(f"Acelerando el audio un {int((SPEED_FACTOR - 1) * 100)}%...")
+            voice_clip = voice_clip.fx(afx.speedx, SPEED_FACTOR)
+
         initial_silence_clip = AudioClip(lambda t: 0, duration=1.0)
         final_adjusted_clip = concatenate_audioclips([initial_silence_clip, voice_clip])
         
