@@ -83,7 +83,8 @@ def main():
     plataforma_principal = sel.get("platforms", ["TBD"])[0]
     fecha_estreno_str = sel.get("fecha_estreno", "").replace('-', '/')
 
-    youtube_title = f"#{final_title.replace(' ', '')} - {plataforma_principal} - {fecha_estreno_str}"
+    # Manteniendo el formato pero con espacios
+    youtube_title = f"{final_title} - {plataforma_principal} - {fecha_estreno_str}"
 
     plataformas = sel.get("platforms", [])
     if plataformas:
