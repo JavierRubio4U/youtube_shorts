@@ -1,7 +1,7 @@
 # scripts/select_next_release.py
 import json
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import subprocess
 import json as json_lib
@@ -42,9 +42,40 @@ class SilentLogger:
     def error(self, msg): logging.error(msg)
 
 def _load_state():
-    if PUBLISHED_FILE.exists():
-        return json.loads(PUBLISHED_FILE.read_text(encoding="utf-8"))
-    return {"published_ids": [], "picked_ids": []}
+    if not PUBLISHED_FILE.exists():
+        return {"published_ids": [], "picked_ids": []}
+    
+    state = json.loads(PUBLISHED_FILE.read_text(encoding="utf-8"))
+    
+    # NUEVO: Filtrar picked_ids viejos (>7 días) y manejar formato legacy
+    if state.get("picked_ids"):
+        now = datetime.now(timezone.utc)
+        seven_days_ago = now - timedelta(days=7)
+        
+        filtered_picked = []
+        for pick in state["picked_ids"]:
+            if isinstance(pick, dict) and "timestamp" in pick and "id" in pick:
+                try:
+                    pick_time = datetime.fromisoformat(pick["timestamp"].replace("Z", "+00:00"))
+                    if pick_time >= seven_days_ago:
+                        filtered_picked.append(pick)
+                    else:
+                        logging.info(f"Removido picked_id viejo: {pick['id']} (de {pick['timestamp']})")
+                except (ValueError, KeyError):
+                    # Timestamp inválido: mantener con timestamp actual
+                    filtered_picked.append({"id": pick.get("id"), "timestamp": now.isoformat() + "Z"})
+            else:
+                # Formato legacy (solo ID): convertir a dict con timestamp actual
+                legacy_id = pick if isinstance(pick, (int, str)) else pick.get("id", pick)
+                filtered_picked.append({"id": legacy_id, "timestamp": now.isoformat() + "Z"})
+                logging.info(f"Convertido picked_id legacy: {legacy_id} a formato con timestamp.")
+        
+        state["picked_ids"] = filtered_picked
+        if len(filtered_picked) != len(state.get("picked_ids", [])):  # Si se modificó
+            _save_state(state)  # Guarda inmediatamente el estado limpio
+            logging.info(f"Estado de picked_ids actualizado: {len(filtered_picked)} items restantes.")
+    
+    return state
 
 def _save_state(state):
     PUBLISHED_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -136,9 +167,10 @@ def mark_published(tmdb_id: int, simulate=False):
     if tmdb_id not in state.get("published_ids", []):
         state.setdefault("published_ids", []).append(tmdb_id)
         state["published_ids"] = sorted(set(state["published_ids"]))
-        # Eliminamos el ID de la lista de "picked" si se publica correctamente
-        if tmdb_id in state.get("picked_ids", []):
-            state["picked_ids"].remove(tmdb_id)
+        
+        # Remover de picked si existe
+        state["picked_ids"] = [p for p in state.get("picked_ids", []) if p.get("id") != tmdb_id]
+        
         if not simulate:
             _save_state(state)
         logging.info(f"ID {tmdb_id} marcada publicada (y eliminada de picked){' (simulado)' if simulate else ''}.")
@@ -146,16 +178,18 @@ def mark_published(tmdb_id: int, simulate=False):
         logging.info(f"ID {tmdb_id} ya publicada.")
 
 def mark_picked(tmdb_id: int, simulate=False):
-    state = _load_state()
-    if tmdb_id not in state.get("published_ids", []) and tmdb_id not in state.get("picked_ids", []):
-        state.setdefault("picked_ids", []).append(tmdb_id)
-        state["picked_ids"] = state["picked_ids"][-50:]  # Mantener la lista corta
+    state = _load_state()  # Carga ya limpio
+    picked_ids = [p["id"] for p in state.get("picked_ids", [])]
+    if tmdb_id not in picked_ids and tmdb_id not in state.get("published_ids", []):
+        now = datetime.now(timezone.utc)
+        new_pick = {"id": tmdb_id, "timestamp": now.isoformat() + "Z"}
+        state.setdefault("picked_ids", []).append(new_pick)
+        state["picked_ids"] = state["picked_ids"][-50:]  # Mantener corto
         if not simulate:
             _save_state(state)
-        logging.info(f"ID {tmdb_id} marcada como elegida (picked){' (simulado)' if simulate else ''}.")
+        logging.info(f"ID {tmdb_id} marcada como elegida (picked) en {now.isoformat()[:19]}Z{' (simulado)' if simulate else ''}.")
     else:
         logging.info(f"ID {tmdb_id} ya está en picked o publicada.")
-
 
 # --- LÓGICA DE TRENDING DESARROLLADA PREVIAMENTE ---
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "tmdb_api_key.txt")
@@ -317,7 +351,8 @@ def get_trending_by_type(media_type: str, time_window: str, category: str):
 
 def pick_next():
     state = _load_state()
-    exclude = set(state.get("published_ids", []) + state.get("picked_ids", []))
+    # NUEVO: Exclude usa IDs de picked_ids como lista de dicts
+    exclude = set(state.get("published_ids", []) + [p["id"] for p in state.get("picked_ids", [])])
     logging.info(f"IDs excluidas (published + picked): {exclude}")
 
     # 1. Obtener las listas de trending de cada categoría
