@@ -50,54 +50,62 @@ def count_words(text: str) -> int:
 # --- Funciones de IA ---
 def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min_words=50, max_retries=3) -> str | None:
     """
-    Genera una narración con Gemini, manteniendo el prompt épico y la lógica de corrección.
+    Genera una narración con Gemini, usando el prompt de estilo gamberro y humorístico.
     """
     attempt = 0
     generated_text = ""
     
+    # Mantenemos los márgenes de la versión de sinopsis para flexibilidad
+    margin = 5
+    lower_bound = min_words - margin
+    upper_bound = max_words + margin
+
     while attempt < max_retries:
         attempt += 1
         logging.info(f"Generando narración (Intento {attempt}/{max_retries}) usando el modelo '{model}'...")
 
-        # Mantenemos el prompt original para la narración, que busca un tono épico.
+        # <<< CAMBIO: Prompt principal con el tono gamberro >>>
         initial_prompt = f"""
-        Eres un guionista profesional experto en marketing cinematográfico. Tu única misión es crear una sinopsis corta y potente para la película '{sel.get("titulo")}' en castellano.
+        Eres "El Sinóptico Gamberro", el terror de los departamentos de marketing. Tu superpoder es contar de qué va una película como si se la estuvieras resumiendo a un colega en un bar, con cero paciencia para tonterías.
 
-        **Reglas Inquebrantables:**
-        1.  **REGLA MÁS IMPORTANTE**: La sinopsis DEBE tener **entre {min_words} y {max_words} palabras**. Es un límite estricto e innegociable.
-        2.  **FORMATO DE SALIDA**: SOLO devolverás el texto de la sinopsis. NADA MÁS. Está terminantemente prohibido incluir explicaciones o comentarios.
-        3.  **TONO**: El estilo debe ser épico, cinematográfico y con 'punch', como un tráiler. Céntrate en el conflicto.
-        4.  **CONTENIDO**: Usa la sinopsis original como inspiración, pero crea un texto nuevo y emocionante.
+        Tu misión, si la aceptas (y más te vale), es crear una sinopsis brutalmente honesta y divertida para la película '{sel.get("titulo")}' en castellano.
 
-        **Sinopsis Original de Inspiración:** "{sel.get("sinopsis")}"
+        **Las Reglas de Oro (o te vas a la calle):**
+        1.  **LA MÁS IMPORTANTE**: Clava el texto **idealmente entre {min_words} y {max_words} palabras**. No me hagas sacar la calculadora, sé profesional.
+        2.  **FORMATO**: Devuelve SOLO el texto de la sinopsis. Sin saludos, sin explicaciones, sin "Aquí tienes...". Si escribes algo más, el script explota.
+        3.  **TONO**: 100% gamberro, coloquial y con humor negro o ironía. Pasa del lenguaje cursi de tráiler. Sé el amigo que dice "tienes que ver esta mierda" y te convence.
+        4.  **PROHIBIDO**: Nada de clichés como "una aventura épica", "un viaje inolvidable" o "personajes que te robarán el corazón". Si veo una de esas frases, te bajo el sueldo.
+
+        **Aquí tienes la sinopsis oficial (la versión aburrida para que te inspires y la destroces):** "{sel.get("sinopsis")}"
         """
         
         try:
-            # CAMBIO: Lógica de generación con Gemini
             gemini_model = genai.GenerativeModel(model)
             response = gemini_model.generate_content(initial_prompt)
             generated_text = response.text.strip()
             word_count = count_words(generated_text)
-
-            if min_words <= word_count <= max_words:
+            
+            # Usamos los límites con margen para la comprobación
+            if lower_bound <= word_count <= upper_bound:
                 logging.info(f"Narración generada con éxito ({word_count} palabras).")
                 return generated_text
             
-            if word_count < min_words:
+            # <<< CAMBIO: Prompts de corrección con el mismo tono >>>
+            if word_count < lower_bound:
                 logging.warning(f"Texto demasiado corto ({word_count} palabras). Pidiendo expansión...")
-                correction_prompt = f"Este texto es demasiado corto: \"{generated_text}\". Reescríbelo para que tenga **estrictamente entre {min_words} y {max_words} palabras**, manteniendo el tono épico. Devuelve solo el texto final."
+                correction_prompt = f"Te has quedado corto, colega. Este texto: \"{generated_text}\" necesita más chicha. Estíralo para que tenga **entre {min_words} y {max_words} palabras**, pero sin perder la mala leche. Solo el texto final."
                 response = gemini_model.generate_content(correction_prompt)
                 generated_text = response.text.strip()
 
-            elif word_count > max_words:
+            elif word_count > upper_bound:
                 logging.warning(f"Texto demasiado largo ({word_count} palabras). Pidiendo resumen...")
-                correction_prompt = f"Este texto es demasiado largo: \"{generated_text}\". Reescríbelo para que tenga **estrictamente entre {min_words} y {max_words} palabras**, manteniendo el tono épico. Devuelve solo el texto final."
+                correction_prompt = f"Te has pasado de largo, máquina. Este texto: \"{generated_text}\" es muy largo. Métele tijera y déjalo **entre {min_words} y {max_words} palabras**, manteniendo el tono. Solo el texto final."
                 response = gemini_model.generate_content(correction_prompt)
                 generated_text = response.text.strip()
             
             word_count = count_words(generated_text)
 
-            if min_words <= word_count <= max_words:
+            if lower_bound <= word_count <= upper_bound:
                 logging.info(f"Narración corregida con éxito ({word_count} palabras).")
                 return generated_text
             else:
@@ -164,7 +172,8 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_d
 
 def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, slug: str, video_duration: float | None = None) -> Path | None:
     try:
-        VOICE_ID = "yiWEefwu5z3DQCM79clN"
+        # <<< CAMBIO 1: Nuevo ID de la voz Andaluza >>>
+        VOICE_ID = "2VUqK4PEdMj16L6xTN4J"
         API_KEY = _get_elevenlabs_api_key()
         if not API_KEY:
             logging.error("No se pudo obtener la clave de ElevenLabs. Se detiene la síntesis.")
@@ -178,8 +187,20 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         if character_count > (0.9 * character_limit):
             logging.warning(f"¡Cuidado! Te estás quedando sin cuota. Usados: {character_count}/{character_limit}")
 
+        # <<< CAMBIO 2: Añadimos los ajustes de voz para controlar la entonación >>>
+        # - stability: 0.0 (más variable) a 1.0 (más monótono). Usamos 0.3 para más expresividad.
+        # - style: 0.0 (normal) a 1.0 (muy exagerado). Usamos 0.75 para un estilo muy marcado.
+        # - similarity_boost: No lo tocamos, lo dejamos por defecto.
         audio_stream = client.text_to_speech.convert(
-            voice_id=VOICE_ID, text=text, model_id="eleven_multilingual_v2")
+            voice_id=VOICE_ID,
+            text=text,
+            model_id="eleven_multilingual_v2",
+            voice_settings={
+                "stability": 0.3,
+                "style": 0.75,
+                "use_speaker_boost": True
+            }
+        )
         
         temp_voice_path = tmpdir / f"_temp_voice_{tmdb_id}_{slug}.mp3"
         with open(temp_voice_path, 'wb') as f:
