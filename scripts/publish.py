@@ -12,6 +12,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 # Módulos del proyecto
+import find 
 import select_next_release
 import download_assets
 import build_youtube_metadata
@@ -19,6 +20,7 @@ import build_short
 import upload_youtube
 import cleanup_temp
 import subprocess
+
 
 STATE = ROOT / "output" / "state"
 
@@ -49,7 +51,7 @@ def main():
         # Paso 1: Seleccionar siguiente película
         logging.info("▶ Paso 1: seleccionar siguiente película…")
         try:
-            sel = select_next_release.pick_next()
+            sel = find.find_and_select_next()
             if not sel:
                 logging.info("🛑 No se seleccionó una nueva película. Proceso detenido.")
                 break
@@ -104,11 +106,11 @@ def main():
             continue
 
         if video_id:
-            # Marca como publicado
-            meta = json.loads((STATE / "youtube_metadata.json").read_text(encoding="utf-8"))
-            select_next_release.mark_published(int(meta["tmdb_id"]))
-            logging.info(f"✅ Publicado y marcado. Video: https://studio.youtube.com/video/{video_id}/edit")
-            video_published = True  # Marcar como éxito para salir del bucle
+            # Ahora usa los datos de 'sel' que ya tenemos, es más seguro.
+            tmdb_id_to_publish = sel["tmdb_id"]
+            trailer_url_to_publish = sel["trailer_url"]
+            select_next_release.mark_published(tmdb_id_to_publish, trailer_url_to_publish)
+            
         else:
             logging.error("🛑 La subida falló o se omitió. No se marcará como publicado.")
             # Continuar en el bucle para intentar con el siguiente candidato
