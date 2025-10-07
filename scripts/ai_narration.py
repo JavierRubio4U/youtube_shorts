@@ -5,7 +5,10 @@ import subprocess
 from pathlib import Path
 import google.generativeai as genai
 from slugify import slugify
-from moviepy.editor import AudioFileClip, concatenate_audioclips, AudioClip
+# <<< CAMBIO: Importaciones corregidas y definitivas para tu versión de moviepy >>>
+from moviepy.audio.io.AudioFileClip import AudioFileClip
+from moviepy.audio.AudioClip import AudioClip
+from moviepy.audio.compositing.audioclips import concatenate_audioclips
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")
 import logging
@@ -40,14 +43,10 @@ except (FileNotFoundError, ValueError) as e:
 
 # --- Funciones de texto ---
 def count_words(text: str) -> int:
-    """Contador de palabras preciso."""
     return len(re.findall(r'\b\w+\b', text))
 
 # --- Funciones de IA ---
 def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min_words=50, max_retries=3) -> str | None:
-    """
-    Genera una narración con Gemini, usando el prompt optimizado para una locución dinámica.
-    """
     attempt = 0
     generated_text = ""
     margin = 5
@@ -84,7 +83,7 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min
     logging.error(f"No se logró el rango de palabras después de {max_retries} intentos.")
     return generated_text
 
-def _get_tmp_voice_path(tmdb_id: str, slug: str, tmpdir: Path) -> Path:
+def _get_tmp_voice_path(tm_id: str, slug: str, tmpdir: Path) -> Path:
     return tmpdir / f"{tmdb_id}_{slug}_narracion.wav"
 
 def _get_elevenlabs_api_key() -> str | None:
@@ -98,11 +97,7 @@ def _get_elevenlabs_api_key() -> str | None:
         return None
 
 def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, slug: str, video_duration: float | None = None) -> Path | None:
-    """
-    Función de síntesis de voz que usa la voz andaluza, la hace expresiva y la acelera un 10% con FFmpeg.
-    """
     try:
-        # --- Parámetros de Voz y Velocidad ---
         SPEED_FACTOR = 1.10
         VOICE_ID = "2VUqK4PEdMj16L6xTN4J"
         API_KEY = _get_elevenlabs_api_key()
@@ -112,7 +107,6 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
 
         client = ElevenLabs(api_key=API_KEY)
         
-        # 1. Generar audio con ElevenLabs (voz andaluza y expresiva)
         audio_stream = client.text_to_speech.convert(
             voice_id=VOICE_ID,
             text=text,
@@ -126,7 +120,6 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         
         if not temp_mp3_path.exists(): raise FileNotFoundError("ElevenLabs no generó el archivo.")
 
-        # 2. Acelerar el audio generado usando FFmpeg
         logging.info(f"Acelerando el audio un {int((SPEED_FACTOR - 1) * 100)}% con FFmpeg...")
         temp_accelerated_mp3_path = tmpdir / f"_temp_accelerated_{tmdb_id}_{slug}.mp3"
         ffmpeg_command = [
@@ -136,7 +129,6 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         ]
         subprocess.run(ffmpeg_command, check=True, capture_output=True)
         
-        # 3. Convertir a WAV y añadir silencios (usando el audio ya acelerado)
         temp_wav_path = tmpdir / f"_temp_voice_{tmdb_id}_{slug}.wav"
         subprocess.run(["ffmpeg", "-y", "-i", str(temp_accelerated_mp3_path), str(temp_wav_path)], check=True, capture_output=True)
 
@@ -153,7 +145,6 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         final_wav_path_final = _get_tmp_voice_path(tmdb_id, slug, tmpdir)
         final_adjusted_clip.write_audiofile(str(final_wav_path_final), logger=None)
         
-        # Limpieza de archivos temporales
         temp_mp3_path.unlink()
         temp_accelerated_mp3_path.unlink()
         temp_wav_path.unlink()
@@ -173,7 +164,6 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, video_d
         logging.info(f"Narración generada completa: {narracion}")
         voice_path = _synthesize_elevenlabs_with_pauses(narracion, tmpdir, tmdb_id, slug, video_duration=video_duration)
     else:
-        # ... (el resto de la lógica de la función se mantiene igual)
         logging.warning("No se generó narración. Creando un archivo de audio vacío.")
         voice_path = tmpdir / f"silent_{tmdb_id}_{slug}.wav"
         empty_audio = AudioClip(lambda t: 0, duration=1, fps=44100)
