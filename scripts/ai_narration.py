@@ -178,7 +178,7 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         ssml_text = f'<speak>{ssml_text}</speak>'
         
         # Generar audio con ElevenLabs (método correcto)
-        SPEED_FACTOR = 1.10
+        SPEED_FACTOR = 1.15
         VOICE_ID = "2VUqK4PEdMj16L6xTN4J"  # Voz andaluza expresiva
         audio_stream = client.text_to_speech.convert(
             voice_id=VOICE_ID,
