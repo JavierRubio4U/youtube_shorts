@@ -94,7 +94,6 @@ def has_high_quality_format(trailer_url: str, min_height=1080) -> bool:
         # CÓDIGO CORREGIDO (MÁS FLEXIBLE)
         'format': 'bestvideo[height>=1080]+bestaudio/best',
         'no_check_certificate': True,  # Ignora la verificación de certificado SSL
-        'cookiesfrombrowser': ('chrome',), # Intenta usar coo
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -132,7 +131,6 @@ def find_best_hype_trailer(title: str, year: str, min_height=1080) -> str | None
             'extractor_args': {'youtube': {'player_client': 'web,android'}},  # Cambio: Para mejor extracción
             'forceipv4': True,
             'no_check_certificate': True,
-            'cookiesfrombrowser': ('chrome',),  # Cambio: Estabilidad
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
