@@ -5,10 +5,10 @@ import subprocess
 from pathlib import Path
 import google.generativeai as genai
 from slugify import slugify
-# <<< CAMBIO: Importaciones corregidas y definitivas para tu versión de moviepy >>>
-from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.audio.AudioClip import AudioClip
-from moviepy.audio.compositing.audioclips import concatenate_audioclips
+from moviepy import (VideoFileClip, ImageClip, AudioFileClip, AudioClip,
+                     CompositeVideoClip, ColorClip,
+                     CompositeAudioClip, concatenate_videoclips, concatenate_audioclips)
+import moviepy.audio.fx as afx
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")
 import logging
