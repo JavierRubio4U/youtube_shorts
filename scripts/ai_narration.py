@@ -4,7 +4,6 @@ import re
 import subprocess
 from pathlib import Path
 import google.generativeai as genai
-# <<< CAMBIO 1: Importación correcta para FinishReason >>>
 from google.generativeai.types import GenerationConfig, HarmCategory, HarmBlockThreshold
 from slugify import slugify
 from moviepy import AudioFileClip, AudioClip, concatenate_audioclips
@@ -13,15 +12,22 @@ import warnings
 warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")
 import logging
 from elevenlabs.client import ElevenLabs
-import requests
-import sys
 import tempfile
 import numpy as np
 import shutil
+from gemini_config import GEMINI_MODEL
+import datetime
+
 
 # --- Logging y Constantes ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-GEMINI_MODEL = 'gemini-2.5-pro'  # Revertido: Disponible en tu entorno
+# GEMINI_MODEL = 'gemini-2.5-pro'  # Revertido: Disponible en tu entorno
+
+# <<< CAMBIO: Definimos la ruta de assets/narration >>>
+ROOT = Path(__file__).resolve().parents[1]
+ASSETS_DIR = ROOT / "assets"
+NARRATION_DIR = ASSETS_DIR / "narration"
+NARRATION_DIR.mkdir(parents=True, exist_ok=True) # Nos aseguramos de que exista
 
 # --- Funciones ---
 def count_words(text: str) -> int:
@@ -29,15 +35,19 @@ def count_words(text: str) -> int:
 
 def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=80, min_words=65, max_retries=5) -> str | None:
     logging.info(f"Usando modelo Gemini: {model}")
+    current_year = datetime.datetime.now().year
     initial_prompt = f"""
-    Eres "El Sinóptico Gamberro", el terror de los departamentos de marketing. 
+    Eres "La Sinóptica Gamberra", el terror de los departamentos de marketing. 
     Tu superpoder es contar de qué va una película como si se la estuvieras resumiendo a un colega en un bar, con cero paciencia para tonterías.
-     Tu misión, si la aceptas (y más te vale), es crear una sinopsis brutalmente honesta y divertida para la película '{sel.get("titulo")}'.
+    tienes ese arte de hablar con acento malagueño: directo, con ironia y con un toque de no me lo puedo creer. Tu misión, si la aceptas (y más te vale), 
+    es crear una sinopsis brutalmente honesta y divertida para la película '{sel.get("titulo")}' del año '{sel.get("año",current_year)}'.
     **REGLA MÁS IMPORTANTE E INQUEBRANTABLE:** El guion DEBE tener **ENTRE {min_words} Y {max_words} PALABRAS**. Es un requisito técnico obligatorio. Cuenta las palabras.
     **Otras Reglas:**
     1.  **RITMO Y ENERGÍA**: Frases cortas y directas, como para un Short de YouTube.
     2.  **FORMATO**: Devuelve SOLO el texto de la sinopsis. Sin saludos, sin explicaciones, sin "Aquí tienes..."
     3.  **TONO**: 100% gamberro, coloquial, con ironía.  Pasa del lenguaje cursi de tráiler. Sé el amigo que dice "tienes que ver esta mierda" y te convence.
+    100% de Málaga, usa "qué fuerte", "menuda gracia", "no me lo trago", "liarla to' el día", "pechá", "guita", "petao". Ironía de sobrina, 
+    como si la prota fuera tu prima la loca que siempre mete la pata. Pasa del rollo pijo de tráiler.
     4.  **PROHIBIDO**: Clichés como "una aventura épica", "un viaje inolvidable" o "personajes que te robarán el corazón".
     **Ejemplo de estilo:** "A ver, que no te líen. El prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito. Ahora tiene superpoderes y la lía pardísima."
     **Aquí tienes la sinopsis oficial (la versión aburrida para que te inspires y la destroces)** "{sel.get("sinopsis")}"
@@ -306,7 +316,7 @@ def main() -> tuple[str | None, Path | None] | None:
         narracion, voice_path_temp = generate_narration(sel, tmdb_id, slug, tmpdir, CONFIG_DIR)
         
         if voice_path_temp:
-            final_voice_path = STATE / voice_path_temp.name
+            final_voice_path = NARRATION_DIR  / voice_path_temp.name
             shutil.copy2(voice_path_temp, final_voice_path)
             logging.info(f"Proceso de narración finalizado. Audio copiado a: {final_voice_path}")
             return narracion, final_voice_path

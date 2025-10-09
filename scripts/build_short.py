@@ -25,11 +25,11 @@ SHORTS_DIR = ROOT / "output" / "shorts"
 MANIFEST = STATE / "assets_manifest.json"
 SEL_FILE = STATE / "next_release.json"
 
-W, H = 2160, 3840
+W, H = 2160, 3840  # Volvemos a resolución alta para mejor calidad (como en versión antigua)
 SQUARE_SIZE = 2160
 INTRO_DURATION = 4
 CLIP_DURATION = 6
-MAX_BACKDROPS = 4
+MAX_CLIPS_TO_USE = 4  # Renombrado de MAX_BACKDROPS para claridad
 
 def clip_from_img(path: Path, dur: float) -> ImageClip:
     """Crea un clip de video a partir de una imagen con duración dada."""
@@ -51,13 +51,13 @@ def clip_from_img(path: Path, dur: float) -> ImageClip:
         logging.error(f"Error al cargar imagen {path}: {e}")
         return None
 
-
 def resize_to_9_16(clip: VideoFileClip) -> VideoFileClip:
     """
     Recorta el centro del clip a un formato cuadrado y lo coloca en un fondo vertical 9:16.
     """
     logging.info(f"Dimensiones originales del clip: {clip.size[0]}x{clip.size[1]}")
     
+    # v2 FIX: Usa .cropped() en lugar de .crop()
     square_clip_intermediate = clip.cropped(x_center=clip.w / 2, width=clip.h)
     square_clip = square_clip_intermediate.resized((SQUARE_SIZE, SQUARE_SIZE))
 
@@ -87,6 +87,10 @@ def main():
     poster_path = ROOT / man.get("poster", "")
     video_clips_paths = [ROOT / p for p in man.get("video_clips", []) if (ROOT / p).exists()]
 
+    if not poster_path.exists():
+        logging.error("No se encontró el archivo del póster principal.")
+        return None
+        
     if not video_clips_paths:
         logging.error("No hay clips de video disponibles.")
         return None
@@ -104,18 +108,24 @@ def main():
     opened_video_clips = []
     
     try:
+        logging.info(f"Creando clip de introducción de {INTRO_DURATION}s con el póster...")
         intro_clip = clip_from_img(poster_path, INTRO_DURATION)
         if intro_clip is None:
-            logging.error("Fallo en intro clip.")
+            logging.error("Fallo al crear el clip de introducción.")
             return None
 
+        logging.info(f"Procesando {len(video_clips_paths[:MAX_CLIPS_TO_USE])} clips de vídeo...")
         video_clips_resized = []
-        for clip_path in video_clips_paths[:MAX_BACKDROPS]:
+        for i, clip_path in enumerate(video_clips_paths[:MAX_CLIPS_TO_USE]):
             try:
                 clip = VideoFileClip(str(clip_path))
                 opened_video_clips.append(clip)
                 
-                sub_clip = clip.subclipped(0, CLIP_DURATION)
+                # v2 FIX: Usa .subclipped() para consistencia
+                end_time = min(CLIP_DURATION, clip.duration)
+                sub_clip = clip.subclipped(0, end_time)
+                
+                logging.info(f"  - Clip {i+1}: Redimensionando a 9:16... (duración: {sub_clip.duration:.2f}s)")
                 resized_clip = resize_to_9_16(sub_clip)
                 video_clips_resized.append(resized_clip)
             except Exception as e:
@@ -125,8 +135,10 @@ def main():
             logging.error("No se pudieron procesar clips de video.")
             return None
 
+        logging.info("Concatenando clips de vídeo para la secuencia final...")
         final_video = concatenate_videoclips([intro_clip] + video_clips_resized, method="compose")
 
+        logging.info("Preparando pista de audio...")
         audio_clip = AudioFileClip(str(voice_path))
         final_audio = audio_clip
 
@@ -136,14 +148,18 @@ def main():
             if music_files:
                 music_path = random.choice(music_files)
                 try:
+                    logging.info(f"Añadiendo música de fondo desde '{music_path.name}'...")
                     music_clip = AudioFileClip(str(music_path))
                     
+                    # FIX: Usa concatenate_audioclips para loop (compatible con v1/v2, evita issues en .loop())
                     if music_clip.duration < final_video.duration:
                         repeats = int(final_video.duration / music_clip.duration) + 1
                         music_clip = concatenate_audioclips([music_clip] * repeats)
                     
+                    # v2 FIX: Usa .subclipped()
                     music_clip = music_clip.subclipped(0, final_video.duration)
                     
+                    # FIX: Usa .with_effects() como en versión antigua (más estable en v2 para chains)
                     audio_clip = audio_clip.with_effects([afx.AudioNormalize()])
                     music_clip = music_clip.with_effects([
                         afx.AudioNormalize(),
@@ -153,6 +169,7 @@ def main():
                     ])
                     final_audio = CompositeAudioClip([audio_clip, music_clip])
                     
+                    # v2 FIX: Usa .subclipped()
                     if final_audio.duration > final_video.duration:
                         final_audio = final_audio.subclipped(0, final_video.duration)
                     
@@ -162,41 +179,49 @@ def main():
         else:
             logging.info("No se encontraron archivos de música válidos. Solo narración.")
         
+        # FIX: Manejo de silencio con AudioClip lambda (compatible)
         if final_audio.duration < final_video.duration:
             silence_duration = final_video.duration - final_audio.duration
-            silence_clip = AudioClip(lambda t: 0, duration=silence_duration, fps=final_audio.fps)
+            silence_clip = AudioClip(lambda t: [0, 0], duration=silence_duration, fps=final_audio.fps)
             final_audio = concatenate_audioclips([final_audio, silence_clip])
         
         final_clip = final_video.with_audio(final_audio)
 
         out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
+        
+        logging.info(f"Renderizando vídeo final en '{out_file.name}' (este paso puede tardar)...")
         final_clip.write_videofile(
             str(out_file),
             codec="libx264",
-            fps=60, 
+            fps=60,  # Volvemos a 60fps como en antigua para fluidez
             preset="fast",
-            bitrate="50000k",
+            bitrate="50000k",  # Alto bitrate para calidad
             ffmpeg_params=["-crf", "18", "-movflags", "faststart"],
             logger=None
         )
-        logging.info(f"🎬 Short generado en: {out_file}")
+        logging.info(f"✅ Short generado con éxito.")
 
-        intro_clip.close()
-        final_clip.close()
-        final_audio.close()
-        
-        for clip in opened_video_clips:
-            clip.close()
+        manifest_path = STATE / "assets_manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["mp4_path"] = str(out_file.relative_to(ROOT))  # Guarda path relativo
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            logging.info(f"Path del MP4 guardado en manifiesto: {out_file}")
 
         return str(out_file)
 
     except Exception as e:
         logging.error(f"Error en build_short: {e}", exc_info=True)
-        for clip in opened_video_clips:
-            clip.close()
         return None
 
     finally:
+        # Cierre de clips de vídeo para liberar memoria
+        for clip in opened_video_clips:
+            try:
+                clip.close()
+            except Exception:
+                pass  # Ignorar errores al cerrar
+        # Limpieza de archivos temporales
         cleanup_temp_files(tmp_dir)
 
 def cleanup_temp_files(tmpdir):

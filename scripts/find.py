@@ -1,15 +1,25 @@
-# test/find_with_ai.py
-import sys
+# scripts/find.py (versión principal reducida)
 import logging
 import json
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
-import unicodedata
-
-# --- Dependencias de terceros ---
-import yt_dlp  # type: ignore
+from datetime import datetime, timezone
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import google.generativeai as genai
-import requests
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from gemini_config import GEMINI_MODEL
+import os
+os.environ['ABSL_LOGGING_VERBOSITY'] = '1'  # Reduce warnings de absl
+
+# --- Imports de utils ---
+import sys
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from movie_utils import (
+    _load_state, is_published, api_get, get_synopsis_chain, enrich_movie_basic,  # ← Añade enrich_movie_basic aquí
+    load_config  # Para Gemini/TMDB keys
+)
 
 # --- Configuración de Paths ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,226 +27,306 @@ CONFIG_DIR = ROOT / "config"
 STATE_DIR = ROOT / "output" / "state"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 NEXT_FILE = STATE_DIR / "next_release.json"
+DEBUG_DIR = STATE_DIR / "debug"  # Carpeta para JSONs opcionales
+DEBUG_DIR.mkdir(exist_ok=True)
 
 # --- Configuración del Logging ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# --- Configuración de APIs y Constantes ---
-try:
-    TMDB_API_KEY = (CONFIG_DIR / "tmdb_api_key.txt").read_text().strip()
-    TMDB_BASE_URL = "https://api.themoviedb.org/3"
-    IMG_BASE_URL = "https://image.tmdb.org/t/p"
-    POSTER_SIZE = "w500"
-    BACKDROP_SIZE = "w1280"
-except FileNotFoundError:
-    logging.error(f"ERROR: No se encuentra el archivo de API Key de TMDB.")
-    TMDB_API_KEY = None
-
-class SilentLogger:
-    def debug(self, msg): pass
-    def info(self, msg): pass
-    def warning(self, msg): pass
-    def error(self, msg): logging.error(msg)
-
-# --- FUNCIONES ADAPTADAS ---
-
-def api_get(path, params=None):
-    p = {"api_key": TMDB_API_KEY}
-    if params: p.update(params)
-    r = requests.get(f"{TMDB_BASE_URL}{path}", params=p, timeout=20)
-    r.raise_for_status()
-    return r.json()
-
-def enrich_movie(tmdb_id: int):
-    try:
-        data = api_get(
-            f"/movie/{tmdb_id}",
-            {"language": "es-ES", "append_to_response": "images,credits", "include_image_language": "es,null,en"}
-        )
-        if not data.get("title") or not data.get("overview"):
-            return None
-
-        posters = [f"{IMG_BASE_URL}/{POSTER_SIZE}{p['file_path']}" for p in data.get("images", {}).get("posters", [])[:5]]
-        backdrops = [f"{IMG_BASE_URL}/{BACKDROP_SIZE}{b['file_path']}" for b in data.get("images", {}).get("backdrops", [])[:8]]
-        
-        return {
-            "id": data["id"], "titulo": data["title"], "fecha_estreno": data["release_date"],
-            "sinopsis": data["overview"], "generos": [g["name"] for g in data.get("genres", [])],
-            "poster_principal": posters[0] if posters else None, "posters": posters, "backdrops": backdrops,
-            "popularity": data.get("popularity", 0.0),
-            "reparto_top": [c["name"] for c in data.get("credits", {}).get("cast", [])[:5]]
-        }
-    except Exception as e:
-        logging.error(f"  -> Error al enriquecer película ID {tmdb_id}: {e}")
-        return None
-
-# --- LÓGICA PRINCIPAL DE BÚSQUEDA Y ANÁLISIS ---
-
-def get_youtube_videos(search_query="official movie trailer", limit=50) -> list[dict]:
-    """Busca en YouTube y devuelve una lista de diccionarios con título y URL."""
-    logging.info(f"Buscando en YouTube: '{search_query}' (obteniendo hasta {limit} vídeos)...")
-    ydl_opts = {
-        'quiet': True, 'no_warnings': True, 'skip_download': True, 'logger': SilentLogger(),
-        'extract_flat': 'in_playlist', 'playlistend': limit, 'forceipv4': True, 'no_check_certificate': True,
-    }
-    videos = []
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            search_results = ydl.extract_info(f"ytsearch{limit}:{search_query}", download=False)
-            for entry in search_results.get('entries', []):
-                if entry and entry.get('title') and entry.get('url'):
-                    videos.append({'title': entry['title'], 'url': entry['url']})
-            logging.info(f"Se obtuvieron {len(videos)} vídeos de YouTube.")
-            return videos
-    except Exception as e:
-        logging.error(f"No se pudo completar la búsqueda en YouTube: {e}")
-        return []
-
-def analyze_videos_with_gemini(videos: list[dict]) -> list[dict] | None:
-    """Usa Gemini para analizar una lista de vídeos y asociar la URL original."""
-    logging.info("🧠 Contactando a Gemini para analizar los títulos...")
-    try:
-        api_key_path = CONFIG_DIR / "google_api_key.txt"
-        genai.configure(api_key=api_key_path.read_text().strip())
-    except Exception as e:
-        logging.error(f"Fallo al configurar la API de Google: {e}"); return None
-
-    # <<< CORRECCIÓN AQUÍ >>>
-    # 1. Creamos la cadena de texto con los títulos y saltos de línea primero.
-    video_titles = [v['title'] for v in videos]
-    titles_str = "\n".join(f"{i+1}. {title}" for i, title in enumerate(video_titles))
-
-    # 2. Luego, insertamos esa variable ya creada en el prompt.
-    prompt = f"""
-    Eres un analista experto en cine... Tu misión es analizar la siguiente lista de títulos de vídeos y seleccionar las 10 películas más prometedoras.
-    **Reglas estrictas:**
-    1.  **Filtro temporal OBLIGATORIO**: Descarta CUALQUIER película cuyo año de estreno no sea 2025 o 2026.
-    2.  **Excluye**: Series, cortos, fakes, compilaciones y trailers para el mercado indio.
-    3.  **Formato OBLIGATORIO**: Responde SÓLO con un array JSON de objetos con claves "title" y "year".
-    **Títulos a analizar:**
-    ---
-    {titles_str}
-    ---
-    """
-    # <<< FIN DE LA CORRECCIÓN >>>
-    
-    try:
-        model = genai.GenerativeModel('models/gemini-2.5-pro')
-        response = model.generate_content(prompt)
-        cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
-        ai_movies = json.loads(cleaned_response)
-        
-        # Re-asociar la URL original con el título limpio de la IA
-        results_with_url = []
-        for ai_movie in ai_movies:
-            ai_title_simple = ''.join(filter(str.isalnum, ai_movie['title'])).lower()
-            for video in videos:
-                video_title_simple = ''.join(filter(str.isalnum, video['title'])).lower()
-                if ai_title_simple in video_title_simple:
-                    results_with_url.append({**ai_movie, 'trailer_url': video['url']})
-                    break # Pasar a la siguiente película de la IA
-        
-        logging.info(f"✅ Gemini ha analizado y asociado URL a {len(results_with_url)} películas.")
-        return results_with_url
-    except Exception as e:
-        logging.error(f"Ocurrió un error con Gemini: {e}"); return None
-
-def search_and_filter_tmdb(movies: list[dict]) -> list[dict]:
-    if not TMDB_API_KEY: logging.error("No hay API key de TMDB."); return []
-    logging.info("\n🔎 Verificando películas en TMDB y filtrando por fecha...")
-    final_movies = []
-    four_months_ago = datetime.now() - timedelta(days=120)
-    for movie in movies:
-        title, year = movie.get('title'), movie.get('year')
-        if not title or not year: continue
-        logging.info(f"Buscando en TMDB: '{title}' ({year})")
-        try:
-            params = {'api_key': TMDB_API_KEY, 'query': title, 'year': year, 'language': 'en-US'}
-            response = requests.get(f"{TMDB_BASE_URL}/search/movie", params=params)
-            response.raise_for_status()
-            results = response.json().get('results', [])
-            if not results: logging.warning(f"  -> No se encontró en TMDB."); continue
-            
-            best_match = results[0]
-            release_date_str = best_match.get('release_date')
-            has_poster = bool(best_match.get('poster_path'))
-            
-            if release_date_str and datetime.strptime(release_date_str, '%Y-%m-%d') >= four_months_ago:
-                final_movies.append({
-                    "tmdb_id": best_match.get('id'),
-                    "title": best_match.get('title'),
-                    "release_date": release_date_str,
-                    "has_poster": has_poster,
-                    "trailer_url": movie.get('trailer_url') # <-- Llevamos la URL hasta el final
-                })
-                logging.info(f"  ✓ Aceptada: '{best_match.get('title')}' | Póster: {'Sí' if has_poster else 'No'}")
-            else:
-                logging.warning(f"  -> Rechazada (fecha inválida o antigua): '{best_match.get('title')}'")
-        except Exception as e:
-            logging.error(f"  -> Error buscando '{title}': {e}")
-    return final_movies
-
-# --- BLOQUE PRINCIPAL SIMPLIFICADO ---
+DEBUG = False  # Cambia a True para JSON full en files (debug/)
 
 def find_and_select_next():
-    """
-    Orquesta todo el proceso de descubrimiento y selección, y devuelve el resultado.
-    """
-    # 1. Obtener vídeos (título y URL) de YouTube
-    youtube_videos = get_youtube_videos()
-    if not youtube_videos:
-        logging.error("🛑 No se pudieron obtener vídeos de YouTube. Abortando.")
+    config = load_config()
+    if not config:
         return None
+
+    # --- PASO 0: Cargando estado ---
+    state = _load_state()
+    published_ids = [pub.get("id") for pub in state.get("published_ids", [])]
+    logging.info("")
+    logging.info(f"📂 Cargando {len(published_ids)} IDs de películas ya publicadas.")
+
+    # --- Construir servicio YouTube ---
+    TOKEN_FILE = STATE_DIR / "youtube_token.json"
+    if not TOKEN_FILE.exists():
+        logging.error(f"ERROR: No se encuentra {TOKEN_FILE}. Genera uno con upload_youtube.py.")
+        return None
+
+    try:
+        with open(TOKEN_FILE, 'r') as f:
+            token_data = json.load(f)
+
+        creds = Credentials(
+            token=token_data['token'],
+            refresh_token=token_data['refresh_token'],
+            token_uri=token_data['token_uri'],
+            client_id=token_data['client_id'],
+            client_secret=token_data['client_secret'],
+            scopes=token_data['scopes']
+        )
+
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+
+        youtube = build('youtube', 'v3', credentials=creds)
+    except Exception as e:
+        logging.error(f"Error construyendo servicio YouTube: {e}")
+        return None
+
+    # --- PASO 1: YouTube Search ---
+    logging.info("")
+    logging.info(f"=== 🔍 PASO 1: YouTube Search (Progreso: 1/6) ===")
+    try:
+        query = "official movie trailer 2025 new this week"
+        request = youtube.search().list(
+            part="id,snippet",
+            q=query,
+            type="video",
+            maxResults=100,
+            order="relevance"
+        )
+        response = request.execute()
+        items = response.get("items", [])
+        videos = []
+        video_ids = []
+        for item in items:
+            vid = item['id']['videoId']
+            title = item['snippet']['title']
+            videos.append({'title': title, 'videoId': vid})
+            video_ids.append(vid)
+
+        # Fetch views
+        if video_ids:
+            stats_req = youtube.videos().list(part="statistics", id=','.join(video_ids))
+            stats_resp = stats_req.execute()
+            stats_dict = {item['id']: int(item['statistics'].get('viewCount', 0)) for item in stats_resp.get('items', [])}
+            for v in videos:
+                v['views'] = stats_dict.get(v['videoId'], 0)
+                v['url'] = f"https://www.youtube.com/watch?v={v['videoId']}"
+
+        logging.info(f"Query: '{query}' | Total: {len(videos)} videos.")
+        logging.info("Top 5 (views):")
+        for i, v in enumerate(videos[:5], 1):
+            logging.info(f"  {i}. '{v['title'][:60]}...' ({v['views']:,} views)")
+        if len(videos) > 5:
+            logging.info(f"  ... +{len(videos)-5} más")
         
-    # 2. Analizar con Gemini para obtener lista limpia con URL asociada
-    ai_recommendations = analyze_videos_with_gemini(youtube_videos)
-    if not ai_recommendations:
-        logging.error("🛑 La IA no pudo procesar la lista. Abortando.")
+        # JSON opcional
+        if DEBUG:
+            json_path = DEBUG_DIR / "step1_videos.json"
+            json_path.write_text(json.dumps(videos, indent=2))
+            logging.info(f"[DEBUG] JSON full en {json_path}")
+        
+        logging.info(f"✓ Listo (límite API: 50-100)")
+    except HttpError as e:
+        logging.error(f"Error en API YouTube: {e}")
         return None
+
+    # --- PASO 2: Pre-filtro ---
+    logging.info("")
+    logging.info(f"=== 🧹 PASO 2: Pre-filtro (Progreso: 2/6) ===")
+    filtered_videos = [v for v in videos if 'official' in v['title'].lower() and 'trailer' in v['title'].lower()]
+    if len(filtered_videos) > 50:
+        filtered_videos = filtered_videos[:50]
+    discarded = len(videos) - len(filtered_videos)
+    logging.info(f"Filtrado 'official trailer': {len(filtered_videos)} válidos (de {len(videos)}).")
+    logging.info("Top 5 (views):")
+    for i, v in enumerate(filtered_videos[:5], 1):
+        logging.info(f"  {i}. '{v['title'][:60]}...' ({v['views']:,} views)")
+    if len(filtered_videos) > 5:
+        logging.info(f"  ... +{len(filtered_videos)-5} más")
     
-    # 3. Buscar en TMDB y filtrar por fecha
-    candidate_list = search_and_filter_tmdb(ai_recommendations)
-    candidate_list.sort(key=lambda x: x['has_poster'], reverse=True)
+    if DEBUG:
+        json_path = DEBUG_DIR / "step2_filtered.json"
+        json_path.write_text(json.dumps(filtered_videos, indent=2))
+        logging.info(f"[DEBUG] JSON full en {json_path}")
+    
+    logging.info(f"✓ Conteo: {len(filtered_videos)} | Descartados: {discarded}")
 
-    # 4. Encontrar el primer candidato válido y enriquecerlo
-    selected_movie_payload = None
-    for candidate in candidate_list:
-        if not candidate['has_poster'] or not candidate.get('trailer_url'):
-            continue
-            
-        logging.info(f"\n✨ Intentando seleccionar y enriquecer a '{candidate['title']}'...")
-        enriched_data = enrich_movie(candidate['tmdb_id'])
+    if not filtered_videos:
+        logging.error("No videos after pre-filter.")
+        return None
+
+    # --- PASO 3: Gemini Filter ---
+    logging.info("")
+    logging.info(f"=== 🧠 PASO 3: Gemini Filter (Progreso: 3/6) ===")
+    try:
+        genai.configure(api_key=config["GEMINI_API_KEY"])
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        titles_str = "\n".join(f"{i+1}. {v['title']}" for i, v in enumerate(filtered_videos))
+        prompt = f"""Eres un analista de cine. Analiza esta lista de títulos de vídeos de YouTube y extrae las películas más prometedoras para 2025 o posterior. Descartar si: recopilación ("BEST TRAILERS"), serie ("Season"), india (nombres como "Ranbir", "hindi"), viejo (<2025), no película oficial.
+
+Responde SÓLO con un array JSON de objetos con claves 'pelicula' (nombre película), 'año' (int 2025+), 'index' (índice del título en la lista 1-based para asociar URL).
+
+Si no es válido, ignóralo.
+---
+{titles_str}
+---"""
+        response = model.generate_content(prompt)
         
-        if enriched_data and enriched_data.get("poster_principal"):
-            selected_movie_payload = {
-                **enriched_data,
-                "trailer_url": candidate['trailer_url'],
-                "seleccion_generada": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-            }
-            logging.info(f"🎉 ¡Película seleccionada: {enriched_data['titulo']}!")
-            break
+        # Raw solo si DEBUG
+        if DEBUG:
+            logging.info("Respuesta RAW de Gemini:")
+            logging.info(response.text)
+            raw_path = DEBUG_DIR / "step3_raw_gemini.txt"
+            raw_path.write_text(response.text)
+            logging.info(f"[DEBUG] Raw guardado en {raw_path}")
+
+        cleaned_response = response.text.strip().lstrip("```json").rstrip("```").strip()
+        if not cleaned_response:
+            logging.warning("Respuesta de Gemini vacía después de limpiar.")
+            return None
+
+        ai_movies = json.loads(cleaned_response)
+        gemini_candidates = []
+        for ai_movie in ai_movies:
+            idx = ai_movie.get('index', 0) - 1
+            if 0 <= idx < len(filtered_videos):
+                v = filtered_videos[idx]
+                gemini_candidates.append({
+                    'pelicula': ai_movie['pelicula'],
+                    'año': ai_movie['año'],
+                    'trailer_url': v['url'],
+                    'views': v['views']
+                })
+            else:
+                logging.warning(f"Índice inválido en Gemini: {idx}")
+
+        discarded = len(filtered_videos) - len(gemini_candidates)
+        logging.info(f"IA procesó {len(filtered_videos)} → {len(gemini_candidates)} candidatos (2025+).")
+        logging.info("Top 5 por views:")
+        sorted_gemini = sorted(gemini_candidates, key=lambda x: x['views'], reverse=True)[:5]
+        for i, cand in enumerate(sorted_gemini, 1):
+            logging.info(f"  {i}. '{cand['pelicula']} ({cand['año']})' ({cand['views']:,} views)")
+        if len(gemini_candidates) > 5:
+            logging.info(f"  ... +{len(gemini_candidates)-5} más")
+        
+        if DEBUG:
+            json_path = DEBUG_DIR / "step3_gemini.json"
+            json_path.write_text(json.dumps(gemini_candidates, indent=2))
+            logging.info(f"[DEBUG] JSON full en {json_path}")
+        
+        logging.info(f"✓ Conteo: {len(gemini_candidates)} | Descartados: {discarded} (series, indias, etc.)")
+    except Exception as e:
+        logging.error(f"Error en Gemini: {e}")
+        return None
+
+    if not gemini_candidates:
+        logging.error("No candidatos after Gemini.")
+        return None
+
+    # --- PASO 4: TMDB Verify ---
+    logging.info("")
+    logging.info(f"=== 📺 PASO 4: TMDB Verify (Progreso: 4/6) ===")
+    valid_candidates = []
+    for cand in gemini_candidates:
+        name = cand['pelicula']
+        year = cand['año']
+        search_results = api_get("/search/movie", {"query": name, "year": year, "language": "es-ES"})
+        if not search_results:
+            continue
+        movie = None
+        for result in search_results.get("results", [])[:3]:
+            if result.get("release_date", "").startswith(str(year)):
+                movie = result
+                break
+        if movie and not is_published(movie["id"]):
+            valid_candidates.append({
+                'tmdb_id': movie['id'],
+                'pelicula': name,
+                'año': year,
+                'trailer_url': cand['trailer_url'],
+                'views': cand['views']
+            })
         else:
-            logging.warning(f"  -> Descartado. El enriquecimiento falló o no devolvió póster.")
+            logging.info(f"✗ {name} (sin match o ya publicado)")
 
-    # 5. Guardar el archivo de salida y devolver el payload
-    if selected_movie_payload:
-        final_payload = {
-            "tmdb_id": selected_movie_payload["id"], "titulo": selected_movie_payload["titulo"],
-            "fecha_estreno": selected_movie_payload["fecha_estreno"], "popularity": selected_movie_payload["popularity"],
-            "generos": selected_movie_payload["generos"], "sinopsis": selected_movie_payload["sinopsis"],
-            "poster_principal": selected_movie_payload["poster_principal"], "posters": selected_movie_payload["posters"],
-            "backdrops": selected_movie_payload["backdrops"], "trailer_url": selected_movie_payload["trailer_url"],
-            "reparto_top": selected_movie_payload.get("reparto_top"),
-            "seleccion_generada": selected_movie_payload["seleccion_generada"]
-        }
-        NEXT_FILE.write_text(json.dumps(final_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        logging.info(f"Candidato guardado en: {NEXT_FILE}")
-        return final_payload # <-- Devuelve el resultado
-    else:
-        logging.error("NO SE ENCONTRARON CANDIDATOS VÁLIDOS.")
-        return None # <-- Devuelve None si falla
+    discarded = len(gemini_candidates) - len(valid_candidates)
+    logging.info(f"Verificados {len(gemini_candidates)} → {len(valid_candidates)} IDs nuevos.")
+    logging.info("Top 5 por views (IDs):")
+    sorted_valid = sorted(valid_candidates, key=lambda x: x['views'], reverse=True)[:5]
+    for i, cand in enumerate(sorted_valid, 1):
+        logging.info(f"  {i}. '{cand['pelicula']} (ID: {cand['tmdb_id']})' ({cand['views']:,} views)")
+    if len(valid_candidates) > 5:
+        logging.info(f"  ... +{len(valid_candidates)-5} más")
+    
+    if DEBUG:
+        json_path = DEBUG_DIR / "step4_valid.json"
+        json_path.write_text(json.dumps(valid_candidates, indent=2))
+        logging.info(f"[DEBUG] JSON full en {json_path}")
+    
+    logging.info(f"✓ Conteo: {len(valid_candidates)} | Descartados: {discarded}")
 
-# El bloque __main__ ahora solo llama a la nueva función
+    if not valid_candidates:
+        logging.error("No valid candidates after TMDB.")
+        return None
+
+    # --- PASO 5: Enrich Data (básico: TMDB solo) ---
+    logging.info("")
+    logging.info(f"=== ✨ PASO 5: Enrich Data (Progreso: 5/6) ===")
+    enriched = []
+    for vid in valid_candidates:
+        # Enrich básico: TMDB sin web (rápido)
+        enriched_data = enrich_movie_basic(vid['tmdb_id'], vid['pelicula'], vid['año'], vid['trailer_url'])  # Nueva func básica
+        if enriched_data and enriched_data.get('has_poster'):
+            enriched_data['needs_web'] = not bool(enriched_data.get('sinopsis', ''))  # Marca si necesita web
+            enriched_data['año'] = vid['año']  # ← ¡Aquí el fix! Guarda 'año' para Paso 6
+            enriched_data['views'] = vid['views']
+            enriched.append(enriched_data)
+        else:
+            logging.info(f"✗ {vid['pelicula']} (sin póster)")
+
+    discarded = len(valid_candidates) - len(enriched)
+    logging.info(f"Enriquecidos básicos {len(valid_candidates)} → {len(enriched)} (TMDB OK, pósters ✓).")
+    logging.info("Top 5 (views):")
+    sorted_enriched = sorted(enriched, key=lambda x: x['views'], reverse=True)[:5]
+    for i, e in enumerate(sorted_enriched, 1):
+        sin_status = "✓" if e.get('sinopsis') else "🕵️ (necesita web)"
+        logging.info(f"  {i}. '{e['titulo']}' ({e['views']:,} views | Sinopsis: {sin_status} | Póster: ✓)")
+    if len(enriched) > 5:
+        logging.info(f"  ... +{len(enriched)-5} más")
+    
+    logging.info(f"✓ Conteo: {len(enriched)} | Descartados: {discarded} (sin póster)")
+
+    if not enriched:
+        logging.error("No enriched after step 5.")
+        return None
+
+    # --- PASO 6: Rank & Select + Web final ---
+    logging.info("")
+    logging.info(f"=== 🏆 PASO 6: Rank & Select (Progreso: 6/6) ===")
+    enriched.sort(key=lambda x: x['views'], reverse=True)
+    selected = enriched[0]
+
+    # Si necesita web, hazla solo ahora
+    if selected.get('needs_web'):
+        logging.info(f"🕵️ Chain web para top: '{selected['titulo']}'...")
+        selected['sinopsis'] = get_synopsis_chain(selected['titulo'], selected['año'])  # ← Cambia a esta func
+        if not selected['sinopsis']:
+            logging.warning(f"Sinopsis chain vacía para '{selected['titulo']}' – OK, usa TMDB.")
+        else:
+            logging.info(f"Chain OK: {len(selected['sinopsis'])} chars.")
+
+    # Payload final
+    payload = {
+        "tmdb_id": selected["id"],
+        "titulo": selected["titulo"],
+        "poster_principal": selected["poster_principal"],
+        "sinopsis": selected["sinopsis"],
+        "trailer_url": selected["trailer_url"],
+        "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"
+    }
+    NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    logging.info(f"Top 1: '{selected['titulo']}' ({selected['views']:,} views).")
+    logging.info(f"  ID: {selected['id']} | Trailer: {selected['trailer_url'][:50]}...")
+    sin_preview = selected['sinopsis'][:80] + "..." if selected['sinopsis'] else "Vacía (OK)"
+    logging.info(f"  Sinopsis: {sin_preview}")
+    logging.info(f"  Póster: {selected['poster_principal'][:50]}...")
+    
+    logging.info(f"🎉 ¡Seleccionado y guardado en {NEXT_FILE}!")
+
+    return payload
+
 if __name__ == "__main__":
     print("--- Ejecutando 'find.py' en modo de prueba ---")
     result = find_and_select_next()

@@ -41,15 +41,17 @@ def cleanup_on_start():
     for dir_path in ASSET_DIRS_TO_CLEAR:
         _clear_directory(dir_path)
     
-    # Archivar shorts anteriores en subcarpeta 'produccion'
+    # --- CAMBIO: Borrar shorts anteriores en lugar de archivarlos ---
     shorts_dir = ROOT / "output" / "shorts"
-    produccion_dir = shorts_dir / "produccion"
-    produccion_dir.mkdir(parents=True, exist_ok=True)
-    for file in shorts_dir.iterdir():
-        if file.is_file():
-            new_path = produccion_dir / file.name
-            file.replace(new_path)
-            logging.info(f"Movido {file} a {new_path}")
+    logging.info(f"Limpiando shorts de la carpeta: {shorts_dir}")
+    if shorts_dir.exists():
+        for file in shorts_dir.iterdir():
+            if file.is_file():
+                try:
+                    file.unlink() # Borra el archivo
+                    logging.info(f"Eliminado short anterior: {file.name}")
+                except Exception as e:
+                    logging.error(f"No se pudo eliminar el archivo {file.name}: {e}")
     
     logging.info("--- Limpieza de Inicio completada ---")
 

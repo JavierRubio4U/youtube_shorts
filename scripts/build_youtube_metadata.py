@@ -5,6 +5,8 @@ import logging
 import re
 import google.generativeai as genai  # CAMBIO: Importamos la librería de Google
 import sys  # CAMBIO: Necesario para sys.exit()
+from gemini_config import GEMINI_MODEL
+
 
 # --- Configuración ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- Constantes de IA ---
 # CAMBIO: Usamos el modelo de Gemini Pro
-GEMINI_MODEL = 'gemini-2.5-pro'
+# GEMINI_MODEL = 'gemini-2.5-pro'
 
 # --- Carga de la clave de API de Google ---
 # CAMBIO: Añadido bloque de carga de la API Key de Gemini
