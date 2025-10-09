@@ -76,39 +76,33 @@ def main():
     
     # --- PASO DE TRADUCCIÓN (AHORA CON GEMINI) ---
     translated_title = _translate_title_with_ai(original_title)
-    # Si la traducción falla, usamos el título original como fallback
     final_title = translated_title if translated_title else original_title
 
-    # scripts/build_youtube_metadata.py
-
-# ... (código anterior sin cambios)
-
-    year = sel.get("fecha_estreno", "N/A").split('-')[0]
+    fecha = sel.get("fecha_estreno", "N/A")
+    platforms_info = sel.get("platforms", {})
+    logging.info(f"Debug: Fecha '{fecha}', Platforms '{platforms_info}'")
+    
+    # Mejora: Fallback para year y fecha_str
+    year = fecha.split('-')[0] if fecha != "N/A" else "2025"  # O sel.get("año", "2025")
+    fecha_estreno_str = fecha.replace('-', '/') if fecha != "N/A" else ""
     
     # --- LÓGICA DE PLATAFORMA MEJORADA ---
-    # Obtenemos el diccionario de plataformas, que puede estar vacío
     plataformas_dict = sel.get("platforms", {})
-    # Buscamos específicamente las de streaming
     streaming_platforms = plataformas_dict.get("streaming", [])
+    plataforma_principal = streaming_platforms[0] if streaming_platforms else "Cine"
     
-    # Si hay plataformas de streaming, usamos la primera. Si no, usamos "Cine".
-    if streaming_platforms:
-        plataforma_principal = streaming_platforms[0]
+    # Título: Omite fecha si no hay
+    if fecha_estreno_str:
+        youtube_title = f"{final_title} - {plataforma_principal} - {fecha_estreno_str}"
     else:
-        plataforma_principal = "Cine"
-        
-    fecha_estreno_str = sel.get("fecha_estreno", "").replace('-', '/')
-
-    # --- TÍTULO FINAL PARA YOUTUBE (CON FECHA) ---
-    youtube_title = f"{final_title} - {plataforma_principal} - {fecha_estreno_str}"
-
-    # Para la descripción y hashtags, unimos todas las plataformas (streaming, compra, alquiler)
+        youtube_title = f"{final_title} - {plataforma_principal}"
+    
+    # Plataformas para desc/hashtags
     todas_las_plataformas = sorted(list(set(
         plataformas_dict.get("streaming", []) + 
         plataformas_dict.get("buy", []) + 
         plataformas_dict.get("rent", [])
     )))
-
     if todas_las_plataformas:
         plataformas_str_hashtags = ' '.join([f"#{p.replace(' ', '')}" for p in todas_las_plataformas])
         plataformas_str_desc = ', '.join(todas_las_plataformas)
@@ -122,23 +116,26 @@ def main():
         f"► Título: {final_title}\n"
         f"► Año de estreno: {year}\n"
         f"► Sinopsis: {sel.get('sinopsis', 'Próximamente más detalles.')}\n\n"
-        f"► Plataformas: {plataformas_str_desc}\n\n"
+        f"► Plataformas: {plataformas_str_desc}\n\n"  # ✅ Fix typo
         f"¡No te pierdas las últimas novedades y tráilers de cine y series!\n\n"
         f"#trailer #tráilerespañol #{final_title.replace(' ', '').replace(':', '')} {plataformas_str_hashtags}"
     )
 
-    # ... (resto del fichero)
-
+    # Keywords mejorados
     keywords = [
         "tráiler", "trailer", "tráiler oficial", "tráiler español", "película", "cine", "estreno",
-        final_title, f"{final_title} trailer", f"{final_title} pelicula", year
-    ] + sel.get("generos", []) + sel.get("reparto_top", [])
+        final_title, f"{final_title} trailer", f"{final_title} pelicula"
+    ]
+    if year != "N/A":
+        keywords.append(year)
+    keywords += [g for g in sel.get("generos", []) if g]  # Asume añadido al payload
+    keywords += [r for r in sel.get("reparto_top", []) if r]  # Asume añadido
 
     metadata = {
         "tmdb_id": sel.get("tmdb_id"),
         "title": youtube_title,
         "description": description.strip(),
-        "tags": sorted(list(set(kw.lower() for kw in keywords if kw))),
+        "tags": sorted(list(set(kw.lower() for kw in keywords if kw and kw != "N/A"))),
         "privacyStatus": "private",
         "madeForKids": False,
         "categoryId": "1"  # Film & Animation

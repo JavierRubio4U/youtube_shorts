@@ -282,7 +282,9 @@ Si no es válido, ignóralo.
     sorted_enriched = sorted(enriched, key=lambda x: x['views'], reverse=True)[:5]
     for i, e in enumerate(sorted_enriched, 1):
         sin_status = "✓" if e.get('sinopsis') else "🕵️ (necesita web)"
-        logging.info(f"  {i}. '{e['titulo']}' ({e['views']:,} views | Sinopsis: {sin_status} | Póster: ✓)")
+        streaming_status = "📺" if e.get('has_streaming') else "❌"
+        estreno_status = f"📅 {e.get('fecha_estreno', 'N/A')[:10]}" if e.get('fecha_estreno') else "📅 N/A"
+        logging.info(f"  {i}. '{e['titulo']}' ({e['views']:,} views | Sinopsis: {sin_status} | Póster: ✓ | Streaming: {streaming_status} | Estreno ES: {estreno_status})")
     if len(enriched) > 5:
         logging.info(f"  ... +{len(enriched)-5} más")
     
@@ -314,7 +316,11 @@ Si no es válido, ignóralo.
         "poster_principal": selected["poster_principal"],
         "sinopsis": selected["sinopsis"],
         "trailer_url": selected["trailer_url"],
-        "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"
+        "fecha_estreno": selected["fecha_estreno"],
+        "platforms": selected["platforms"],
+        "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z",
+        "generos": selected["generos"],  # Ya en enrich_basic
+        "reparto_top": []  # O fetch aquí si quieres full
     }
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     logging.info(f"Top 1: '{selected['titulo']}' ({selected['views']:,} views).")

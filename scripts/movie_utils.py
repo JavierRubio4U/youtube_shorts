@@ -177,8 +177,8 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         return None
 
 # --- ENRICH ---
-def enrich_movie(tmdb_id: int, movie_name: str, year: int, trailer_url: str = None):
-    """Obtiene todos los detalles de una película desde TMDB, incluyendo edad y plataformas. Si no sinopsis, busca en web."""
+def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: str = None):
+    """Enrich básico: TMDB sin web fallback (rápido para ranking)."""
     try:
         data = api_get(
             f"/movie/{tmdb_id}",
@@ -189,30 +189,23 @@ def enrich_movie(tmdb_id: int, movie_name: str, year: int, trailer_url: str = No
             }
         )
         if not data or not data.get("title"):
-            logging.warning(f"Enriquecimiento falló: Sin título para ID {tmdb_id}")
+            logging.warning(f"Enrich básico falló: Sin título para ID {tmdb_id}")
             return None
 
-        # Sinopsis: Si no hay, busca en web
-        sinopsis = data.get("overview", "")
-        if not sinopsis:
-            logging.info(f"Sin overview en TMDB para '{data.get('title')}'. Buscando en web...")
-            sinopsis = get_synopsis_from_web(data.get("title"), year)
-            if not sinopsis:
-                logging.warning(f"Sinopsis no encontrada para '{data.get('title')}' (ni TMDB ni web) – pero OK, no bloquea.")
-                sinopsis = ""  # ✅ Vacío OK, no return None
+        sinopsis = data.get("overview", "")  # Solo TMDB, no web
 
-        # Pósters y backdrops
         posters = [f"{IMG_BASE_URL}/{POSTER_SIZE}{p['file_path']}" for p in data.get("images", {}).get("posters", [])]
-        backdrops = [f"{IMG_BASE_URL}/{BACKDROP_SIZE}{b['file_path']}" for b in data.get("images", {}).get("backdrops", [])]
         poster_principal = posters[0] if posters else None
         if not poster_principal:
-            logging.warning(f"Sin póster para '{data.get('title')}' (ID: {tmdb_id})")
-            return None  # ✅ Solo esto bloquea
+            logging.warning(f"Sin póster básico para '{data.get('title')}' (ID: {tmdb_id})")
+            return None
 
         # Géneros
         generos = [g["name"] for g in data.get("genres", [])]
+        reparto = sorted(data.get("credits", {}).get("cast", []), key=itemgetter("order"))[:3]
+        reparto_top = [f"{c['name']} ({c['character']})" for c in reparto if c.get("character")]
 
-        # Fecha estreno (ES si disponible)
+        # Fecha estreno (ES si disponible) ← NUEVO: Loop ES-specific como en full enrich
         fecha_estreno = data.get("release_date", "")
         for rel in data.get("release_dates", {}).get("results", []):
             if rel["iso_3166_1"] == "ES":
@@ -221,62 +214,32 @@ def enrich_movie(tmdb_id: int, movie_name: str, year: int, trailer_url: str = No
                         fecha_estreno = rd["release_date"]
                         break
 
-        # Certificación edad (ES si disponible)
-        certificacion_ES = "Pendiente"
-        for rel in data.get("release_dates", {}).get("results", []):
-            if rel["iso_3166_1"] == "ES":
-                for rd in rel["release_dates"]:
-                    if rd.get("certification"):
-                        certificacion_ES = rd["certification"]
-                        break
-
-        # Reparto top (top 3 cast)
-        reparto = sorted(
-            data.get("credits", {}).get("cast", []),
-            key=itemgetter("order")
-        )[:3]
-        reparto_top = [f"{c['name']} ({c['character']})" for c in reparto if c.get("character")]
-
-        # Plataformas (streaming/buy/rent en ES)
+        # Plataformas full (streaming/buy/rent en ES) ← NUEVO: Dict completo como en full
         providers = data.get("watch/providers", {}).get("results", {}).get("ES", {})
         platforms = {
             "streaming": [p["provider_name"] for p in providers.get("flatrate", [])],
             "buy": [p["provider_name"] for p in providers.get("buy", [])],
             "rent": [p["provider_name"] for p in providers.get("rent", [])]
         }
-
-        # --- AÑADIDO: Log para verificar plataformas ---
-        has_streaming = bool(platforms["streaming"])
-        has_purchase = bool(platforms["buy"] or platforms["rent"])
-        if has_streaming or has_purchase:
-            logging.info(f"✓ Plataformas encontradas para '{data['title']}'.")
-        else:
-            logging.info(f"ℹ️ Sin plataformas de streaming/compra para '{data['title']}'. Se usará 'Cine'.")
-        # --- FIN AÑADIDO ---
+        has_streaming = bool(platforms["streaming"])  # Para logging
 
         enriched_data = {
             "id": tmdb_id,
             "titulo": data["title"],
-            "fecha_estreno": fecha_estreno,
+            "fecha_estreno": fecha_estreno,  # ← Clave matching con build
             "generos": generos,
-            "sinopsis": sinopsis,  # Puede ser "", no bloquea
+            "sinopsis": sinopsis,  # Puede ser vacía
             "poster_principal": poster_principal,
-            "posters": posters,
-            "backdrops": backdrops,
-            "reparto_top": reparto_top,
+            "has_poster": bool(poster_principal),
+            # NUEVOS:
             "platforms": platforms,
-            "certificacion_ES": certificacion_ES,
-            "popularity": data.get("popularity", 0),
-            "has_poster": bool(poster_principal)
+            "has_streaming": has_streaming
         }
-
-        # Agregar trailer_url si se proporciona
         if trailer_url:
             enriched_data["trailer_url"] = trailer_url
-
         return enriched_data
     except Exception as e:
-        logging.error(f"Error enriqueciendo '{movie_name}' (ID: {tmdb_id}): {e}")
+        logging.error(f"Error enrich básico '{movie_name}' (ID: {tmdb_id}): {e}")
         return None
     
 def get_synopsis_chain(title: str, year: int) -> str:
