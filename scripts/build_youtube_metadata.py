@@ -79,20 +79,42 @@ def main():
     # Si la traducción falla, usamos el título original como fallback
     final_title = translated_title if translated_title else original_title
 
+    # scripts/build_youtube_metadata.py
+
+# ... (código anterior sin cambios)
+
     year = sel.get("fecha_estreno", "N/A").split('-')[0]
     
-    # CAMBIO: Usamos el título traducido (final_title) para el formato del título de YouTube
-    plataforma_principal = sel.get("platforms", ["TBD"])[0]
+    # --- LÓGICA DE PLATAFORMA MEJORADA ---
+    # Obtenemos el diccionario de plataformas, que puede estar vacío
+    plataformas_dict = sel.get("platforms", {})
+    # Buscamos específicamente las de streaming
+    streaming_platforms = plataformas_dict.get("streaming", [])
+    
+    # Si hay plataformas de streaming, usamos la primera. Si no, usamos "Cine".
+    if streaming_platforms:
+        plataforma_principal = streaming_platforms[0]
+    else:
+        plataforma_principal = "Cine"
+        
     fecha_estreno_str = sel.get("fecha_estreno", "").replace('-', '/')
 
-    # Manteniendo el formato pero con espacios
+    # --- TÍTULO FINAL PARA YOUTUBE (CON FECHA) ---
     youtube_title = f"{final_title} - {plataforma_principal} - {fecha_estreno_str}"
 
-    plataformas = sel.get("platforms", [])
-    if plataformas:
-        plataformas_str = ' '.join([f"#{p.replace(' ', '')}" for p in plataformas])
+    # Para la descripción y hashtags, unimos todas las plataformas (streaming, compra, alquiler)
+    todas_las_plataformas = sorted(list(set(
+        plataformas_dict.get("streaming", []) + 
+        plataformas_dict.get("buy", []) + 
+        plataformas_dict.get("rent", [])
+    )))
+
+    if todas_las_plataformas:
+        plataformas_str_hashtags = ' '.join([f"#{p.replace(' ', '')}" for p in todas_las_plataformas])
+        plataformas_str_desc = ', '.join(todas_las_plataformas)
     else:
-        plataformas_str = "#Estrenos"
+        plataformas_str_hashtags = "#Estrenos #Cine"
+        plataformas_str_desc = "Próximamente en cines"
 
     description = (
         f"Descubre el tráiler oficial de '{final_title}', la película del {year}. "
@@ -100,10 +122,12 @@ def main():
         f"► Título: {final_title}\n"
         f"► Año de estreno: {year}\n"
         f"► Sinopsis: {sel.get('sinopsis', 'Próximamente más detalles.')}\n\n"
-        f"► Plataformas: {', '.join(plataformas)}\n\n"
+        f"► Plataformas: {plataformas_str_desc}\n\n"
         f"¡No te pierdas las últimas novedades y tráilers de cine y series!\n\n"
-        f"#trailer #tráilerespañol #{final_title.replace(' ', '').replace(':', '')} {plataformas_str}"
+        f"#trailer #tráilerespañol #{final_title.replace(' ', '').replace(':', '')} {plataformas_str_hashtags}"
     )
+
+    # ... (resto del fichero)
 
     keywords = [
         "tráiler", "trailer", "tráiler oficial", "tráiler español", "película", "cine", "estreno",

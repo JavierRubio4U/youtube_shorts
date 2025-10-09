@@ -245,6 +245,15 @@ def enrich_movie(tmdb_id: int, movie_name: str, year: int, trailer_url: str = No
             "rent": [p["provider_name"] for p in providers.get("rent", [])]
         }
 
+        # --- AÑADIDO: Log para verificar plataformas ---
+        has_streaming = bool(platforms["streaming"])
+        has_purchase = bool(platforms["buy"] or platforms["rent"])
+        if has_streaming or has_purchase:
+            logging.info(f"✓ Plataformas encontradas para '{data['title']}'.")
+        else:
+            logging.info(f"ℹ️ Sin plataformas de streaming/compra para '{data['title']}'. Se usará 'Cine'.")
+        # --- FIN AÑADIDO ---
+
         enriched_data = {
             "id": tmdb_id,
             "titulo": data["title"],
