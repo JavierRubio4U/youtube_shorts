@@ -148,7 +148,7 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
             logging.warning(f"Enrich básico falló: Sin título para ID {tmdb_id}")
             return None
 
-        sinopsis = data.get("overview", "")  # Solo TMDB, no web
+        sinopsis = data.get("overview", "")
 
         posters = [f"{IMG_BASE_URL}/{POSTER_SIZE}{p['file_path']}" for p in data.get("images", {}).get("posters", [])]
         poster_principal = posters[0] if posters else None
@@ -156,56 +156,8 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
             logging.warning(f"Sin póster básico para '{data.get('title')}' (ID: {tmdb_id})")
             return None
 
-        # Mínimo para rank (géneros, fecha opcionales)
         generos = [g["name"] for g in data.get("genres", [])]
-        fecha_estreno = data.get("release_date", "")
-
-        enriched_data = {
-            "id": tmdb_id,
-            "titulo": data["title"],
-            "fecha_estreno": fecha_estreno,
-            "generos": generos,
-            "sinopsis": sinopsis,  # Puede ser vacía
-            "poster_principal": poster_principal,
-            "has_poster": bool(poster_principal)
-        }
-        if trailer_url:
-            enriched_data["trailer_url"] = trailer_url
-        return enriched_data
-    except Exception as e:
-        logging.error(f"Error enrich básico '{movie_name}' (ID: {tmdb_id}): {e}")
-        return None
-
-# --- ENRICH ---
-def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: str = None):
-    """Enrich básico: TMDB sin web fallback (rápido para ranking)."""
-    try:
-        data = api_get(
-            f"/movie/{tmdb_id}",
-            {
-                "language": "es-ES",
-                "append_to_response": "images,credits,release_dates,watch/providers",
-                "include_image_language": "es,null,en"
-            }
-        )
-        if not data or not data.get("title"):
-            logging.warning(f"Enrich básico falló: Sin título para ID {tmdb_id}")
-            return None
-
-        sinopsis = data.get("overview", "")  # Solo TMDB, no web
-
-        posters = [f"{IMG_BASE_URL}/{POSTER_SIZE}{p['file_path']}" for p in data.get("images", {}).get("posters", [])]
-        poster_principal = posters[0] if posters else None
-        if not poster_principal:
-            logging.warning(f"Sin póster básico para '{data.get('title')}' (ID: {tmdb_id})")
-            return None
-
-        # Géneros
-        generos = [g["name"] for g in data.get("genres", [])]
-        reparto = sorted(data.get("credits", {}).get("cast", []), key=itemgetter("order"))[:3]
-        reparto_top = [f"{c['name']} ({c['character']})" for c in reparto if c.get("character")]
-
-        # Fecha estreno (ES si disponible) ← NUEVO: Loop ES-specific como en full enrich
+        
         fecha_estreno = data.get("release_date", "")
         for rel in data.get("release_dates", {}).get("results", []):
             if rel["iso_3166_1"] == "ES":
@@ -214,24 +166,43 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
                         fecha_estreno = rd["release_date"]
                         break
 
-        # Plataformas full (streaming/buy/rent en ES) ← NUEVO: Dict completo como en full
-        providers = data.get("watch/providers", {}).get("results", {}).get("ES", {})
+        # --- INICIO DEL CAMBIO: Lógica de Plataformas con Fallback a US ---
+        
+        # Obtenemos los proveedores para TODOS los países disponibles en la respuesta
+        all_providers = data.get("watch/providers", {}).get("results", {})
+        
+        # Extraemos específicamente los de España y EE.UU.
+        es_providers = all_providers.get("ES", {})
+        us_providers = all_providers.get("US", {})
+        
+        es_streaming = [p["provider_name"] for p in es_providers.get("flatrate", [])]
+        us_streaming = [p["provider_name"] for p in us_providers.get("flatrate", [])]
+        
+        final_streaming_list = []
+        
+        # Lógica de Prioridad:
+        # 1. Si hay información para España, se usa esa.
+        if es_streaming:
+            final_streaming_list = es_streaming
+        # 2. Si no, y hay para EE.UU., se usa la de EE.UU. advirtiéndolo.
+        elif us_streaming:
+            final_streaming_list = [f"{p} (US)" for p in us_streaming]
+
         platforms = {
-            "streaming": [p["provider_name"] for p in providers.get("flatrate", [])],
-            "buy": [p["provider_name"] for p in providers.get("buy", [])],
-            "rent": [p["provider_name"] for p in providers.get("rent", [])]
+            "streaming": final_streaming_list
         }
-        has_streaming = bool(platforms["streaming"])  # Para logging
+        has_streaming = bool(platforms["streaming"])
+
+        # --- FIN DEL CAMBIO ---
 
         enriched_data = {
             "id": tmdb_id,
             "titulo": data["title"],
-            "fecha_estreno": fecha_estreno,  # ← Clave matching con build
+            "fecha_estreno": fecha_estreno,
             "generos": generos,
-            "sinopsis": sinopsis,  # Puede ser vacía
+            "sinopsis": sinopsis,
             "poster_principal": poster_principal,
             "has_poster": bool(poster_principal),
-            # NUEVOS:
             "platforms": platforms,
             "has_streaming": has_streaming
         }
@@ -256,10 +227,10 @@ def get_synopsis_chain(title: str, year: int) -> str:
             soup = BeautifulSoup(r.text, 'html.parser')
             snippet = soup.find("div", class_="BNeawe s3v9rd AP7Wnd")
             text = snippet.text.strip() if snippet else ""
-            if len(text) > 50:  # Válido si >50 chars
+            if len(text) > 50:
                 logging.info(f"Hit en {site_query.split(' site:')[1]}: {text[:100]}...")
-                return text[:200]  # Corta a 200 para base
+                return text[:200]
         except Exception as e:
             logging.warning(f"Falla en {site_query}: {e}")
     logging.warning(f"No sinopsis en chain para '{title} {year}'.")
-    return ""  # Vacío si todo falla
+    return ""

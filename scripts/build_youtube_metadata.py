@@ -3,9 +3,10 @@ import json
 from pathlib import Path
 import logging
 import re
-import google.generativeai as genai  # CAMBIO: Importamos la librería de Google
+import google.generativeai as genai  
 import sys  # CAMBIO: Necesario para sys.exit()
 from gemini_config import GEMINI_MODEL
+from datetime import datetime  
 
 
 # --- Configuración ---
@@ -78,13 +79,25 @@ def main():
     translated_title = _translate_title_with_ai(original_title)
     final_title = translated_title if translated_title else original_title
 
+    # DESPUÉS
     fecha = sel.get("fecha_estreno", "N/A")
-    platforms_info = sel.get("platforms", {})
-    logging.info(f"Debug: Fecha '{fecha}', Platforms '{platforms_info}'")
-    
-    # Mejora: Fallback para year y fecha_str
-    year = fecha.split('-')[0] if fecha != "N/A" else "2025"  # O sel.get("año", "2025")
-    fecha_estreno_str = fecha.replace('-', '/') if fecha != "N/A" else ""
+
+    year = "2025"  # Valor por defecto
+    fecha_estreno_str = ""
+
+    if fecha and fecha != "N/A":
+        try:
+            # 1. Aislamos la fecha (ej: '2025-10-23') para eliminar la hora si la hubiera
+            date_part = fecha.split('T')[0]
+            # 2. Convertimos el texto a un objeto de fecha real
+            date_obj = datetime.strptime(date_part, '%Y-%m-%d')
+            # 3. Formateamos la fecha al formato dd/MM/yy que necesitas
+            fecha_estreno_str = date_obj.strftime('%d/%m/%y')
+            # 4. Obtenemos el año de forma segura
+            year = date_obj.strftime('%Y')
+        except ValueError:
+            # Si la fecha viene en un formato inesperado, lo registramos y continuamos sin ella
+            logging.warning(f"Formato de fecha no válido: '{fecha}'. No se usará en el título.")
     
     # --- LÓGICA DE PLATAFORMA MEJORADA ---
     plataformas_dict = sel.get("platforms", {})

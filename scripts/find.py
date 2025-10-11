@@ -230,16 +230,39 @@ Si no es válido, ignóralo.
             if result.get("release_date", "").startswith(str(year)):
                 movie = result
                 break
-        if movie and not is_published(movie["id"]):
-            valid_candidates.append({
-                'tmdb_id': movie['id'],
-                'pelicula': name,
-                'año': year,
-                'trailer_url': cand['trailer_url'],
-                'views': cand['views']
-            })
+        if movie:
+            if not is_published(movie["id"]):
+                valid_candidates.append({
+                    'tmdb_id': movie['id'],
+                    'pelicula': name,
+                    'año': year,
+                    'trailer_url': cand['trailer_url'],
+                    'views': cand['views']
+                })
+            else:
+                logging.info(f"✗ {name} (ya publicado)") # Ahora dice "ya publicado"
         else:
-            logging.info(f"✗ {name} (sin match o ya publicado)")
+            logging.info(f"✗ {name} (sin match en TMDB)") # Ahora dice "sin match en TMDB"
+
+    # --- DEDUPLICACIÓN DE CANDIDATOS ---
+    if valid_candidates:
+        deduplicated_dict = {}
+        for cand in valid_candidates:
+            tmdb_id = cand['tmdb_id']
+            # Si no hemos visto este ID, o si el candidato actual tiene más views que el guardado...
+            if tmdb_id not in deduplicated_dict or cand['views'] > deduplicated_dict[tmdb_id]['views']:
+                deduplicated_dict[tmdb_id] = cand
+        
+        # La nueva lista de candidatos es la que no tiene duplicados
+        unique_candidates = list(deduplicated_dict.values())
+        duplicates_removed = len(valid_candidates) - len(unique_candidates)
+        
+        # Actualizamos la lista original
+        valid_candidates = unique_candidates
+        
+        if duplicates_removed > 0:
+            logging.info(f"Se eliminaron {duplicates_removed} duplicados, conservando el tráiler de más views.")
+    # --- FIN DEL DEDUPLICACIÓN ---
 
     discarded = len(gemini_candidates) - len(valid_candidates)
     logging.info(f"Verificados {len(gemini_candidates)} → {len(valid_candidates)} IDs nuevos.")
@@ -282,7 +305,7 @@ Si no es válido, ignóralo.
     sorted_enriched = sorted(enriched, key=lambda x: x['views'], reverse=True)[:5]
     for i, e in enumerate(sorted_enriched, 1):
         sin_status = "✓" if e.get('sinopsis') else "🕵️ (necesita web)"
-        streaming_status = "📺" if e.get('has_streaming') else "❌"
+        streaming_status = "🎬 Cine" if not e.get('has_streaming') else "📺 " + ", ".join(e['platforms']['streaming'])
         estreno_status = f"📅 {e.get('fecha_estreno', 'N/A')[:10]}" if e.get('fecha_estreno') else "📅 N/A"
         logging.info(f"  {i}. '{e['titulo']}' ({e['views']:,} views | Sinopsis: {sin_status} | Póster: ✓ | Streaming: {streaming_status} | Estreno ES: {estreno_status})")
     if len(enriched) > 5:
@@ -329,9 +352,20 @@ Si no es válido, ignóralo.
     logging.info(f"  Sinopsis: {sin_preview}")
     logging.info(f"  Póster: {selected['poster_principal'][:50]}...")
     
+    fecha_estreno_log = selected['fecha_estreno'][:10] if selected['fecha_estreno'] else "N/A"
+    logging.info(f"  Fecha de estreno: {fecha_estreno_log}")
+    
+    # Mostrar plataformas de streaming
+    if selected['platforms'].get('streaming'):
+        streaming_info = f"Streaming: {', '.join(selected['platforms']['streaming'])}"
+        logging.info(f"  Plataformas disponibles: {streaming_info}")
+    else:
+        logging.info(f"  Plataformas disponibles: Cine.")
+    
     logging.info(f"🎉 ¡Seleccionado y guardado en {NEXT_FILE}!")
 
     return payload
+    
 
 if __name__ == "__main__":
     print("--- Ejecutando 'find.py' en modo de prueba ---")
