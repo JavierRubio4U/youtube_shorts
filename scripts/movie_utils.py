@@ -6,6 +6,8 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from operator import itemgetter
 from bs4 import BeautifulSoup
+import google.generativeai as genai
+from gemini_config import GEMINI_MODEL
 
 # --- Configuración de Paths (global para utils) ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -214,23 +216,44 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         return None
     
 def get_synopsis_chain(title: str, year: int) -> str:
-    """Chain multi-site para sinopsis oficial: Filmaffinity > Sensacine > IMDb. Retorna primera hit >50 chars."""
-    sites = [
-        f"sinopsis {title} {year} site:filmaffinity.com",
-        f"sinopsis {title} {year} site:sensacine.com",
-        f"plot summary {title} {year} site:imdb.com"
-    ]
-    for site_query in sites:
-        try:
-            params = {"q": site_query, "num": 3}
-            r = requests.get("https://www.google.com/search", params=params, timeout=10)
-            soup = BeautifulSoup(r.text, 'html.parser')
-            snippet = soup.find("div", class_="BNeawe s3v9rd AP7Wnd")
-            text = snippet.text.strip() if snippet else ""
-            if len(text) > 50:
-                logging.info(f"Hit en {site_query.split(' site:')[1]}: {text[:100]}...")
-                return text[:200]
-        except Exception as e:
-            logging.warning(f"Falla en {site_query}: {e}")
-    logging.warning(f"No sinopsis en chain para '{title} {year}'.")
-    return ""
+    """Usa Gemini para buscar y resumir la mejor sinopsis de la web."""
+    logging.info(f"Buscando sinopsis con IA para '{title} ({year})'...")
+    try:
+        # 1. Configurar Gemini (asegurándonos de que esté listo)
+        config = load_config()
+        if not config or not config.get("GEMINI_API_KEY"):
+            logging.error("No se encontró la clave API de Gemini para la búsqueda de sinopsis.")
+            return ""
+        genai.configure(api_key=config["GEMINI_API_KEY"])
+
+        # 2. Crear el prompt para la búsqueda
+        prompt = f"""
+        Eres un asistente de búsqueda experto. Tu única tarea es encontrar la sinopsis más precisa y aceptada 
+        para la película "{title}" estrenada alrededor del año {year}.
+
+        **Reglas:**
+        1.  **FORMATO**: Responde ÚNICAMENTE con el texto de la sinopsis. No incluyas "Aquí tienes la sinopsis:", encabezados o cualquier otro texto introductorio.
+        2.  **LONGITUD**: La sinopsis debe tener entre 40 y 80 palabras.
+        3.  **PRECISIÓN**: Basa tu respuesta en fuentes fiables de cine como IMDb, FilmAffinity, Rotten Tomatoes o Sensacine.
+        4.  **SI NO HAY RESULTADOS**: Si no encuentras una sinopsis fiable, responde con una cadena de texto completamente vacía.
+
+        Busca y devuelve la sinopsis ahora.
+        """
+
+        # 3. Llamar a la API de Gemini
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content(prompt)
+        
+        synopsis_text = response.text.strip()
+
+        # 4. Validar y devolver el resultado
+        if not synopsis_text:
+            logging.warning(f"La IA no encontró una sinopsis para '{title} ({year})'.")
+            return ""
+        
+        logging.info(f"Sinopsis encontrada con IA para '{title}': {synopsis_text[:100]}...")
+        return synopsis_text
+
+    except Exception as e:
+        logging.error(f"Error buscando sinopsis con IA para '{title}': {e}")
+        return ""

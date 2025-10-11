@@ -323,14 +323,26 @@ Si no es válido, ignóralo.
     enriched.sort(key=lambda x: x['views'], reverse=True)
     selected = enriched[0]
 
-    # Si necesita web, hazla solo ahora
+    # --- 📌 SINOPSIS ---
+    # 1. Determinar la fuente de la sinopsis y obtener el texto final
+    synopsis_source = "TMDB"  # Por defecto, la sinopsis viene de TMDB
+
+    # Si la de TMDB estaba vacía, intentamos con Gemini (a través de get_synopsis_chain)
     if selected.get('needs_web'):
-        logging.info(f"🕵️ Chain web para top: '{selected['titulo']}'...")
-        selected['sinopsis'] = get_synopsis_chain(selected['titulo'], selected['año'])  # ← Cambia a esta func
-        if not selected['sinopsis']:
-            logging.warning(f"Sinopsis chain vacía para '{selected['titulo']}' – OK, usa TMDB.")
+        logging.info(f"🕵️ Sinopsis de TMDB vacía. Buscando con IA para '{selected['titulo']}'...")
+        gemini_synopsis = get_synopsis_chain(selected['titulo'], selected['año'])
+        
+        if gemini_synopsis:
+            selected['sinopsis'] = gemini_synopsis
+            synopsis_source = "Gemini"  # La fuente ahora es Gemini
+            logging.info("✅ Sinopsis encontrada con IA.")
         else:
-            logging.info(f"Chain OK: {len(selected['sinopsis'])} chars.")
+            logging.warning(f"La búsqueda con IA tampoco encontró sinopsis para '{selected['titulo']}'.")
+            # La sinopsis sigue vacía, la fuente es TMDB (Vacía)
+
+    synopsis_text_for_log = selected.get('sinopsis') or "Vacía."
+
+    # --- FIN DEL SINOPSIS ---
 
     # Payload final
     payload = {
