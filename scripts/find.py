@@ -330,7 +330,7 @@ Si no es válido, ignóralo.
     # Si la de TMDB estaba vacía, intentamos con Gemini (a través de get_synopsis_chain)
     if selected.get('needs_web'):
         logging.info(f"🕵️ Sinopsis de TMDB vacía. Buscando con IA para '{selected['titulo']}'...")
-        gemini_synopsis = get_synopsis_chain(selected['titulo'], selected['año'])
+        gemini_synopsis = get_synopsis_chain(selected['titulo'], selected['año'], selected['id'])   
         
         if gemini_synopsis:
             selected['sinopsis'] = gemini_synopsis
