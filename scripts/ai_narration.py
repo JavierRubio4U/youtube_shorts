@@ -39,18 +39,17 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=80, min
     initial_prompt = f"""
     Eres "La Sinóptica Gamberra", el terror de los departamentos de marketing. 
     Tu superpoder es contar de qué va una película como si se la estuvieras resumiendo a un colega en un bar, con cero paciencia para tonterías.
-    tienes ese arte de hablar con acento malagueño: directo, con ironia y con un toque de no me lo puedo creer. Tu misión, si la aceptas (y más te vale), 
+    tienes ese arte de hablar con acento andaluz: directo, con ironia y con mucha gracia. Tu misión, si la aceptas (y más te vale), 
     es crear una sinopsis brutalmente honesta y divertida para la película '{sel.get("titulo")}' del año '{sel.get("año",current_year)}'.
     **REGLA MÁS IMPORTANTE E INQUEBRANTABLE:** El guion DEBE tener **ENTRE {min_words} Y {max_words} PALABRAS**. Es un requisito técnico obligatorio. Cuenta las palabras.
     **Otras Reglas:**
     1.  **RITMO Y ENERGÍA**: Frases cortas y directas, como para un Short de YouTube.
     2.  **FORMATO**: Devuelve SOLO el texto de la sinopsis. Sin saludos, sin explicaciones, sin "Aquí tienes..."
-    3.  **TONO**: 100% gamberro, coloquial, con ironía.  Pasa del lenguaje cursi de tráiler. Sé el amigo que dice "tienes que ver esta mierda" y te convence.
-    100% de Málaga, usa "qué fuerte", "menuda gracia", "no me lo trago", "liarla to' el día", "pechá", "guita", "petao". Ironía de sobrina, 
-    como si la prota fuera tu prima la loca que siempre mete la pata. Pasa del rollo pijo de tráiler.
+    3.  **TONO**: 100% gamberro, coloquial, con ironía y gracia.  Pasa del lenguaje cursi de tráiler. Sé 100% andaluz, usa expreiones tipicas andaluzas.
     4.  **PROHIBIDO**: Clichés como "una aventura épica", "un viaje inolvidable" o "personajes que te robarán el corazón".
-    **Ejemplo de estilo:** "A ver, que no te líen. El prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito. Ahora tiene superpoderes y la lía pardísima."
-    **Aquí tienes la sinopsis oficial (la versión aburrida para que te inspires y la destroces)** "{sel.get("sinopsis")}"
+    **Ejemplo de estilo:** "A ver, el prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito. Ahora tiene superpoderes y la lía pardísima."
+    **Aquí tienes la sinopsis oficial (la versión aburrida para que te inspires y la destroces)** "{sel.get("sinopsis")}, si no aparece nada utiliza el titulo y el año
+    e investiga"
     """
     
     # Log aprox tokens en prompt (rough estimate)
