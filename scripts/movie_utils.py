@@ -8,6 +8,7 @@ from operator import itemgetter
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from gemini_config import GEMINI_MODEL
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- Configuración de Paths (global para utils) ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -215,45 +216,70 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         logging.error(f"Error enrich básico '{movie_name}' (ID: {tmdb_id}): {e}")
         return None
     
-def get_synopsis_chain(title: str, year: int) -> str:
-    """Usa Gemini para buscar y resumir la mejor sinopsis de la web."""
-    logging.info(f"Buscando sinopsis con IA para '{title} ({year})'...")
+def get_synopsis_chain(title: str, year: int, tmdb_id: str) -> str:
+    """Obtiene datos fiables de TMDB y usa la IA para reescribirlos en una sinopsis de calidad en español."""
+    logging.info(f"Generando sinopsis desde datos de TMDB para '{title}' (ID: {tmdb_id})...")
     try:
-        # 1. Configurar Gemini (asegurándonos de que esté listo)
-        config = load_config()
-        if not config or not config.get("GEMINI_API_KEY"):
-            logging.error("No se encontró la clave API de Gemini para la búsqueda de sinopsis.")
+        # 1. OBTENER DATOS FIABLES DIRECTAMENTE DE LA API DE TMDB (EN INGLÉS, SUELE SER MÁS COMPLETO)
+        movie_data = api_get(f"/movie/{tmdb_id}", {"language": "en-US"})
+        if not movie_data:
+            logging.error(f"No se pudieron obtener datos de TMDB para el ID {tmdb_id}.")
             return ""
-        genai.configure(api_key=config["GEMINI_API_KEY"])
 
-        # 2. Crear el prompt para la búsqueda
+        # 2. CONSTRUIR LA "FICHA TÉCNICA" CON DATOS VERIFICADOS
+        tmdb_overview = movie_data.get('overview', '')
+        tmdb_tagline = movie_data.get('tagline', '')
+        genres = [g['name'] for g in movie_data.get('genres', [])]
+
+        if not tmdb_overview:
+            logging.warning(f"La sinopsis de TMDB para '{title}' también está vacía. La IA tendrá que improvisar.")
+        
+        fact_sheet = f"Título Original: {movie_data.get('original_title')}\n"
+        fact_sheet += f"Sinopsis de TMDB: {tmdb_overview}\n"
+        fact_sheet += f"Tagline: {tmdb_tagline}\n"
+        fact_sheet += f"Géneros: {', '.join(genres)}\n"
+
+        logging.info(f"Ficha técnica enviada a la IA:\n---\n{fact_sheet.strip()}\n---")
+
+        # 3. CREAR EL NUEVO PROMPT (DE REESCRITURA, NO DE BÚSQUEDA)
         prompt = f"""
-        Eres un asistente de búsqueda experto. Tu única tarea es encontrar la sinopsis más precisa y aceptada 
-        para la película "{title}" estrenada alrededor del año {year}.
+        Eres un guionista experto de cine. Tu tarea es escribir una sinopsis atractiva y concisa en español, 
+        basándote exclusivamente en la siguiente ficha técnica de una película.
 
-        **Reglas:**
-        1.  **FORMATO**: Responde ÚNICAMENTE con el texto de la sinopsis. No incluyas "Aquí tienes la sinopsis:", encabezados o cualquier otro texto introductorio.
-        2.  **LONGITUD**: La sinopsis debe tener entre 40 y 80 palabras.
-        3.  **PRECISIÓN**: Basa tu respuesta en fuentes fiables de cine como IMDb, FilmAffinity, Rotten Tomatoes o Sensacine.
-        4.  **SI NO HAY RESULTADOS**: Si no encuentras una sinopsis fiable, responde con una cadena de texto completamente vacía.
+        **Ficha Técnica:**
+        ---
+        {fact_sheet}
+        ---
 
-        Busca y devuelve la sinopsis ahora.
+        **Instrucciones:**
+        1.  **USA SOLO ESTOS DATOS:** No busques en internet ni uses información externa. Basa tu sinopsis únicamente en la ficha técnica proporcionada.
+        2.  **LÓGICA:** Si la "Sinopsis de TMDB" es buena, úsala como base principal. Si está vacía o es muy corta, crea la sinopsis a partir del título, el tagline y los géneros para inferir la trama.
+        3.  **IDIOMA Y TONO**: El resultado final debe estar en español, ser atractivo y sonar como una sinopsis de cine profesional.
+        4.  **LONGITUD**: El texto final debe tener entre 40 y 80 palabras.
+        5.  **FORMATO**: Responde ÚNICAMENTE con el texto de la sinopsis.
+
+        Genera la sinopsis en español ahora.
         """
 
-        # 3. Llamar a la API de Gemini
+        # 4. LLAMAR A LA IA PARA LA REESCRITURA
+        config = load_config()
+        genai.configure(api_key=config["GEMINI_API_KEY"])
         model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            # ... (otras categorías)
+        }
         
-        synopsis_text = response.text.strip()
+        response = model.generate_content(prompt, safety_settings=safety_settings)
+        final_synopsis = response.text.strip() if response.parts else ""
 
-        # 4. Validar y devolver el resultado
-        if not synopsis_text:
-            logging.warning(f"La IA no encontró una sinopsis para '{title} ({year})'.")
+        if not final_synopsis:
+            logging.error(f"La IA no pudo generar una sinopsis a partir de los datos de TMDB para '{title}'.")
             return ""
-        
-        logging.info(f"Sinopsis encontrada con IA para '{title}': {synopsis_text[:100]}...")
-        return synopsis_text
+
+        logging.info(f"Sinopsis generada con IA (reescritura): {final_synopsis}")
+        return final_synopsis
 
     except Exception as e:
-        logging.error(f"Error buscando sinopsis con IA para '{title}': {e}")
+        logging.error(f"Error crítico en get_synopsis_chain para '{title}': {e}", exc_info=True)
         return ""
