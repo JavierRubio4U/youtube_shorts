@@ -2,7 +2,7 @@
 import logging
 import json
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import google.generativeai as genai
@@ -78,6 +78,17 @@ def find_and_select_next():
     logging.info(f"=== 🔍 PASO 1: YouTube Search (Progreso: 1/6) ===")
     try:
         query = "official movie trailer 2025 new this week"
+
+        # Define cuántos días hacia atrás quieres buscar. Puedes cambiar este número.
+        days_to_search = 30
+        
+        # 1. Calcula la fecha de inicio para la búsqueda
+        start_date = datetime.now(timezone.utc) - timedelta(days=days_to_search)
+        
+        # 2. Formatea la fecha al formato RFC 3339 que requiere la API (ej: '2025-10-05T08:30:00Z')
+        published_after_str = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        logging.info(f"Filtrando resultados de YouTube publicados después de: {published_after_str}")
         
         # --- BÚSQUEDA PAGINADA ---
         all_items = []
@@ -94,7 +105,8 @@ def find_and_select_next():
                 type="video",
                 maxResults=50,  # Límite máximo real por página
                 order="relevance",
-                pageToken=next_page_token # Usamos el token para pedir la siguiente página
+                pageToken=next_page_token, # Usamos el token para pedir la siguiente página
+                publishedAfter=published_after_str
             )
             response = request.execute()
             all_items.extend(response.get("items", []))
