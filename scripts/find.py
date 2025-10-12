@@ -78,18 +78,39 @@ def find_and_select_next():
     logging.info(f"=== 🔍 PASO 1: YouTube Search (Progreso: 1/6) ===")
     try:
         query = "official movie trailer 2025 new this week"
-        request = youtube.search().list(
-            part="id,snippet",
-            q=query,
-            type="video",
-            maxResults=100,
-            order="relevance"
-        )
-        response = request.execute()
-        items = response.get("items", [])
+        
+        # --- BÚSQUEDA PAGINADA ---
+        all_items = []
+        next_page_token = None
+        num_pages_to_fetch = 2 # <-- Puedes ajustar este número (ej: 2 para 100, 3 para 150)
+
+        logging.info(f"Realizando hasta {num_pages_to_fetch} búsquedas paginadas para obtener más resultados...")
+
+        for i in range(num_pages_to_fetch):
+            logging.info(f"  -> Obteniendo página {i + 1}/{num_pages_to_fetch}...")
+            request = youtube.search().list(
+                part="id,snippet",
+                q=query,
+                type="video",
+                maxResults=50,  # Límite máximo real por página
+                order="relevance",
+                pageToken=next_page_token # Usamos el token para pedir la siguiente página
+            )
+            response = request.execute()
+            all_items.extend(response.get("items", []))
+            
+            # Obtenemos el token para la siguiente iteración
+            next_page_token = response.get('nextPageToken')
+            # Si no hay más páginas, detenemos el bucle
+            if not next_page_token:
+                logging.info("  -> No hay más páginas de resultados.")
+                break
+        
+        # --- FIN DE BUSQUEDA PAGINADA ---
+             
         videos = []
         video_ids = []
-        for item in items:
+        for item in all_items:
             vid = item['id']['videoId']
             title = item['snippet']['title']
             videos.append({'title': title, 'videoId': vid})
@@ -97,9 +118,17 @@ def find_and_select_next():
 
         # Fetch views
         if video_ids:
-            stats_req = youtube.videos().list(part="statistics", id=','.join(video_ids))
-            stats_resp = stats_req.execute()
-            stats_dict = {item['id']: int(item['statistics'].get('viewCount', 0)) for item in stats_resp.get('items', [])}
+            stats_dict = {}
+            for i in range(0, len(video_ids), 50):
+                chunk = video_ids[i:i + 50]
+                try:
+                    stats_req = youtube.videos().list(part="statistics", id=','.join(chunk))
+                    stats_resp = stats_req.execute()
+                    for item in stats_resp.get('items', []):
+                        stats_dict[item['id']] = int(item['statistics'].get('viewCount', 0))
+                except HttpError as e:
+                    logging.error(f"Error obteniendo estadísticas para un bloque de vídeos: {e}")
+            
             for v in videos:
                 v['views'] = stats_dict.get(v['videoId'], 0)
                 v['url'] = f"https://www.youtube.com/watch?v={v['videoId']}"
@@ -117,7 +146,7 @@ def find_and_select_next():
             json_path.write_text(json.dumps(videos, indent=2))
             logging.info(f"[DEBUG] JSON full en {json_path}")
         
-        logging.info(f"✓ Listo (límite API: 50-100)")
+        logging.info(f"✓ Listo ")
     except HttpError as e:
         logging.error(f"Error en API YouTube: {e}")
         return None
