@@ -222,14 +222,33 @@ Si no es válido, ignóralo.
     for cand in gemini_candidates:
         name = cand['pelicula']
         year = cand['año']
-        search_results = api_get("/search/movie", {"query": name, "year": year, "language": "es-ES"})
-        if not search_results:
-            continue
+
         movie = None
-        for result in search_results.get("results", [])[:3]:
-            if result.get("release_date", "").startswith(str(year)):
-                movie = result
-                break
+                
+        # 1. Primer Intento: Búsqueda en Español
+        search_results_es = api_get("/search/movie", {"query": name, "language": "es-ES"})
+        if search_results_es and search_results_es.get("results"):
+            for result in search_results_es["results"][:3]:
+                # --- CAMBIO 2: Verificación de año más flexible (año actual o siguiente) ---
+                release_year_str = result.get("release_date", "0000")[:4]
+                if release_year_str in (str(year), str(year + 1)):
+                    movie = result
+                    break
+        
+        # 2. Segundo Intento (Fallback): Búsqueda en Inglés si el primero falla
+        if not movie:
+            # Log de eficiencia para vigilar cuándo se usa el fallback
+            logging.info(f"✗ '{name}' No encontrado en español. Reintentando en inglés")
+            search_results_en = api_get("/search/movie", {"query": name}) # Sin 'language' para default a inglés
+            if search_results_en and search_results_en.get("results"):
+                for result in search_results_en["results"][:3]:
+                    # --- CAMBIO 2: Verificación de año flexible (también aquí) ---
+                    release_year_str = result.get("release_date", "0000")[:4]
+                    if release_year_str in (str(year), str(year + 1)):
+                        movie = result
+                        logging.info(f" ✓ -> Éxito. Encontrado en inglés como '{result.get('title')}' (ID: {result.get('id')}).")
+                        break
+                
         if movie:
             if not is_published(movie["id"]):
                 valid_candidates.append({
@@ -240,9 +259,9 @@ Si no es válido, ignóralo.
                     'views': cand['views']
                 })
             else:
-                logging.info(f"✗ {name} (ya publicado)") # Ahora dice "ya publicado"
+                logging.info(f"✗ {name} ({year} (ya publicado)") # Ahora dice "ya publicado"
         else:
-            logging.info(f"✗ {name} (sin match en TMDB)") # Ahora dice "sin match en TMDB"
+            logging.info(f"✗ {name} ({year} (sin match en TMDB)") # Ahora dice "sin match en TMDB"
 
     # --- DEDUPLICACIÓN DE CANDIDATOS ---
     if valid_candidates:
