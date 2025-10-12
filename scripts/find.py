@@ -362,7 +362,7 @@ Si no es válido, ignóralo.
     discarded = len(valid_candidates) - len(enriched)
     logging.info(f"Enriquecidos básicos {len(valid_candidates)} → {len(enriched)} (TMDB OK, pósters ✓).")
     logging.info("Top 5 (views):")
-    sorted_enriched = sorted(enriched, key=lambda x: x['views'], reverse=True)[:5]
+    sorted_enriched = sorted(enriched, key=lambda x: x['views'], reverse=True)[:10]
     for i, e in enumerate(sorted_enriched, 1):
         sin_status = "✓" if e.get('sinopsis') else "🕵️ (necesita web)"
         streaming_status = "🎬 Cine" if not e.get('has_streaming') else "📺 " + ", ".join(e['platforms']['streaming'])
