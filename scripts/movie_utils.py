@@ -161,13 +161,40 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
 
         generos = [g["name"] for g in data.get("genres", [])]
         
-        fecha_estreno = data.get("release_date", "")
-        for rel in data.get("release_dates", {}).get("results", []):
-            if rel["iso_3166_1"] == "ES":
-                for rd in rel["release_dates"]:
-                    if rd["release_date"]:
-                        fecha_estreno = rd["release_date"]
-                        break
+        # Establece la fecha global como fallback inicial, asegurando formato YYYY-MM-DD
+        fecha_estreno = data.get("release_date", "").split("T")[0]
+        
+        # Define la prioridad de búsqueda: primero España, luego EEUU
+        country_priority = ["ES", "US"]
+        # Define la prioridad de tipo de estreno: cine > limitado > premiere
+        type_priority = [3, 2, 1]
+        
+        all_release_results = data.get("release_dates", {}).get("results", [])
+        found_priority_date = False
+
+        # Itera sobre los países en orden de prioridad
+        for country_code in country_priority:
+            country_releases = []
+            for rel in all_release_results:
+                if rel.get("iso_3166_1") == country_code:
+                    country_releases = rel.get("release_dates", [])
+                    break
+            
+            # Si se encuentran fechas para el país, se buscan por tipo
+            if country_releases:
+                for type_code in type_priority:
+                    for rd in country_releases:
+                        if rd.get("type") == type_code and rd.get("release_date"):
+                            fecha_estreno = rd["release_date"].split("T")[0]
+                            found_priority_date = True
+                            break  # Tipo encontrado, salir del bucle de fechas
+                    if found_priority_date:
+                        break  # Tipo encontrado, salir del bucle de tipos
+            
+            if found_priority_date:
+                # La mejor fecha posible ha sido encontrada, detener la búsqueda
+                logging.info(f" ✓ Fecha de estreno encontrada para '{data.get('title')}' en {country_code}: {fecha_estreno}")
+                break
 
         # --- INICIO DEL CAMBIO: Lógica de Plataformas con Fallback a US ---
         

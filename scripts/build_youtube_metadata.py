@@ -104,10 +104,20 @@ def main():
     streaming_platforms = plataformas_dict.get("streaming", [])
     plataforma_principal = streaming_platforms[0] if streaming_platforms else "Cine"
     
-    # Título: Omite fecha si no hay
+    # --- LÓGICA DE TÍTULO CON PAÍS DE ESTRENO ---
+    pais_de_la_fecha = sel.get("pais_de_la_fecha")
+
+    # Título: Añade fecha y país (si no es de España)
     if fecha_estreno_str:
-        youtube_title = f"{final_title} - {plataforma_principal} - {fecha_estreno_str}"
+        # Si el país es conocido y NO es 'ES', añadimos un indicador (ej: " (US)")
+        if pais_de_la_fecha and pais_de_la_fecha != "ES":
+            fecha_con_pais = f"{fecha_estreno_str} ({pais_de_la_fecha})"
+        else:
+            fecha_con_pais = fecha_estreno_str
+        
+        youtube_title = f"{final_title} - {plataforma_principal} - {fecha_con_pais}"
     else:
+        # Si no hay fecha, el título no la incluye
         youtube_title = f"{final_title} - {plataforma_principal}"
     
     # Plataformas para desc/hashtags
