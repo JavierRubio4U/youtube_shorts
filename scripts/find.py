@@ -80,7 +80,7 @@ def find_and_select_next():
         query = "official movie trailer 2025 new this week"
 
         # Define cuántos días hacia atrás quieres buscar. Puedes cambiar este número.
-        days_to_search = 30
+        days_to_search = 7
         
         # 1. Calcula la fecha de inicio para la búsqueda
         start_date = datetime.now(timezone.utc) - timedelta(days=days_to_search)
