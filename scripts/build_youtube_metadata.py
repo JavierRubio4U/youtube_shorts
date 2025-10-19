@@ -105,20 +105,24 @@ def main():
     plataforma_principal = streaming_platforms[0] if streaming_platforms else "Cine"
     
     # --- LÓGICA DE TÍTULO CON PAÍS DE ESTRENO ---
+    # 1. Preparamos la plataforma con el país (si no es de España)
     pais_de_la_fecha = sel.get("pais_de_la_fecha")
-
-    # Título: Añade fecha y país (si no es de España)
-    if fecha_estreno_str:
-        # Si el país es conocido y NO es 'ES', añadimos un indicador (ej: " (US)")
-        if pais_de_la_fecha and pais_de_la_fecha != "ES":
-            fecha_con_pais = f"{fecha_estreno_str} ({pais_de_la_fecha})"
-        else:
-            fecha_con_pais = fecha_estreno_str
-        
-        youtube_title = f"{final_title} - {plataforma_principal} - {fecha_con_pais}"
+    
+    if pais_de_la_fecha and pais_de_la_fecha != "ES":
+        # Ej: "Amazon Prime Video (US)"
+        plataforma_con_pais = f"{plataforma_principal} ({pais_de_la_fecha})"
     else:
-        # Si no hay fecha, el título no la incluye
-        youtube_title = f"{final_title} - {plataforma_principal}"
+        # Ej: "Amazon Prime Video"
+        plataforma_con_pais = plataforma_principal
+
+    # 2. Construimos el título final con el nuevo formato
+    if fecha_estreno_str:
+        # Formato: Título - Plataforma (País) - Fecha
+        youtube_title = f"{final_title} - {plataforma_con_pais} - {fecha_estreno_str}"
+    else:
+        # Si no hay fecha, no la incluimos
+        youtube_title = f"{final_title} - {plataforma_con_pais}"
+    # --- FIN DEL CAMBIO ---
     
     # Plataformas para desc/hashtags
     todas_las_plataformas = sorted(list(set(
