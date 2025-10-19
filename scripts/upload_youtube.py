@@ -51,6 +51,7 @@ def _get_youtube_service():
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
     return build('youtube', 'v3', credentials=creds)
+
 def upload_video(video_path: str, meta: dict) -> str | None:
     youtube = _get_youtube_service()
    
@@ -94,19 +95,32 @@ def upload_video(video_path: str, meta: dict) -> str | None:
 def main(video_path: str | None = None):
     meta = _load_metadata()
     tmdb_id = meta["tmdb_id"]
-    if video_path is None:
-        shorts_dir = ROOT / "output" / "shorts"
+                   
+    # --- INICIO DE LA CORRECCIÓN ---
+    # Comprobar si necesitamos buscar el archivo de vídeo
+    # Esto ocurre si no se proporciona una ruta, o si la ruta es un directorio.
+    if video_path is None or Path(video_path).is_dir():
+        # Si se pasó un directorio, lo usamos como base. Si no, usamos el por defecto.
+        search_dir = Path(video_path) if video_path else ROOT / "output" / "shorts"
+        
+        print(f"ℹ️ Buscando vídeo para TMDB ID {tmdb_id} en: {search_dir}")
         cands = sorted(
-            shorts_dir.glob(f"{tmdb_id}_*.mp4"),
+            search_dir.glob(f"{tmdb_id}_*.mp4"),
             key=lambda p: p.stat().st_mtime,
             reverse=True
         )
         if not cands:
-            raise SystemExit(f"No se encontró el MP4 de {tmdb_id} en {shorts_dir}")
+            raise SystemExit(f"❌ No se encontró ningún archivo .mp4 para {tmdb_id} en {search_dir}")
+        
+        # Asignamos la ruta del archivo encontrado
         video_path = str(cands[0])
+    
     print(f"▶ Subiendo video: {video_path}")
+    # --- FIN DE LA CORRECCIÓN ---]
+    
+    video_id = None
     video_id = upload_video(video_path, meta)
-   
+    
     if video_id:
         print("✅ Subida completada. ID:", video_id)
     return video_id
