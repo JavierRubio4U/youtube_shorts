@@ -195,14 +195,22 @@ def find_and_select_next():
         genai.configure(api_key=config["GEMINI_API_KEY"])
         model = genai.GenerativeModel(GEMINI_MODEL)
         titles_str = "\n".join(f"{i+1}. {v['title']}" for i, v in enumerate(filtered_videos))
+        
+        # --- 🔴 INICIO DEL CAMBIO: Prompt actualizado ---
         prompt = f"""Eres un analista de cine. Analiza esta lista de títulos de vídeos de YouTube y extrae las películas más prometedoras para 2025 o posterior. Descartar si: recopilación ("BEST TRAILERS"), serie ("Season"), india (nombres como "Ranbir", "hindi"), viejo (<2025), no película oficial.
 
-Responde SÓLO con un array JSON de objetos con claves 'pelicula' (nombre película), 'año' (int 2025+), 'index' (índice del título en la lista 1-based para asociar URL).
+Responde SÓLO con un array JSON de objetos con claves:
+1. 'pelicula' (nombre película)
+2. 'año' (int 2025+)
+3. 'index' (índice del título en la lista 1-based)
+4. 'plataforma' (string: "Netflix", "Disney+", "Prime Video", "HBO", "Apple TV+", etc. si se menciona explícitamente en el título. Si no se menciona ninguna, usa "Cine").
 
 Si no es válido, ignóralo.
 ---
 {titles_str}
 ---"""
+        # --- 🔴 FIN DEL CAMBIO ---
+
         response = model.generate_content(prompt)
         
         # Raw solo si DEBUG
@@ -228,7 +236,8 @@ Si no es válido, ignóralo.
                     'pelicula': ai_movie['pelicula'],
                     'año': ai_movie['año'],
                     'trailer_url': v['url'],
-                    'views': v['views']
+                    'views': v['views'],
+                    'plataforma': ai_movie.get('plataforma', 'Cine') # <-- 🔴 CAMBIO: Extraer plataforma
                 })
             else:
                 logging.warning(f"Índice inválido en Gemini: {idx}")
@@ -238,7 +247,8 @@ Si no es válido, ignóralo.
         logging.info("Top 5 por views:")
         sorted_gemini = sorted(gemini_candidates, key=lambda x: x['views'], reverse=True)[:5]
         for i, cand in enumerate(sorted_gemini, 1):
-            logging.info(f"  {i}. '{cand['pelicula']} ({cand['año']})' ({cand['views']:,} views)")
+            # --- 🔴 CAMBIO: Log actualizado para mostrar plataforma ---
+            logging.info(f"  {i}. '{cand['pelicula']} ({cand['año']})' (Plataforma: {cand['plataforma']}) ({cand['views']:,} views)")
         if len(gemini_candidates) > 5:
             logging.info(f"  ... +{len(gemini_candidates)-5} más")
         
@@ -292,12 +302,14 @@ Si no es válido, ignóralo.
                 
         if movie:
             if not is_published(movie["id"]):
+                # --- 🔴 CAMBIO: Pasar la plataforma de IA ---
                 valid_candidates.append({
                     'tmdb_id': movie['id'],
                     'pelicula': name,
                     'año': year,
                     'trailer_url': cand['trailer_url'],
-                    'views': cand['views']
+                    'views': cand['views'],
+                    'ia_platform_from_title': cand.get('plataforma', 'Cine')
                 })
             else:
                 logging.info(f"✗ {name} ({year} (ya publicado)") # Ahora dice "ya publicado"
@@ -329,7 +341,8 @@ Si no es válido, ignóralo.
     logging.info("Top 5 por views (IDs):")
     sorted_valid = sorted(valid_candidates, key=lambda x: x['views'], reverse=True)[:5]
     for i, cand in enumerate(sorted_valid, 1):
-        logging.info(f"  {i}. '{cand['pelicula']} (ID: {cand['tmdb_id']})' ({cand['views']:,} views)")
+        # --- 🔴 CAMBIO: Log actualizado para mostrar plataforma ---
+        logging.info(f"  {i}. '{cand['pelicula']} (ID: {cand['tmdb_id']})' (Plataforma IA: {cand['ia_platform_from_title']}) ({cand['views']:,} views)")
     if len(valid_candidates) > 5:
         logging.info(f"  ... +{len(valid_candidates)-5} más")
     
@@ -355,19 +368,33 @@ Si no es válido, ignóralo.
             enriched_data['needs_web'] = not bool(enriched_data.get('sinopsis', ''))  # Marca si necesita web
             enriched_data['año'] = vid['año']  # ← ¡Aquí el fix! Guarda 'año' para Paso 6
             enriched_data['views'] = vid['views']
+            # --- 🔴 CAMBIO: Pasar la plataforma de IA ---
+            enriched_data['ia_platform_from_title'] = vid.get('ia_platform_from_title', 'Cine')
             enriched.append(enriched_data)
         else:
             logging.info(f"✗ {vid['pelicula']} (sin póster)")
 
     discarded = len(valid_candidates) - len(enriched)
     logging.info(f"Enriquecidos básicos {len(valid_candidates)} → {len(enriched)} (TMDB OK, pósters ✓).")
-    logging.info("Top 5 (views):")
+    logging.info("Top 10 (views):")
     sorted_enriched = sorted(enriched, key=lambda x: x['views'], reverse=True)[:10]
     for i, e in enumerate(sorted_enriched, 1):
+        # --- 🔴 CAMBIO: Log actualizado para mostrar plataforma IA vs TMDB ---
         sin_status = "✓" if e.get('sinopsis') else "🕵️ (necesita web)"
-        streaming_status = "🎬 Cine" if not e.get('has_streaming') else "📺 " + ", ".join(e['platforms']['streaming'])
+        
+        # Plataforma TMDB
+        streaming_platforms = e.get('platforms', {}).get('streaming', [])
+        streaming_status = "🎬 Cine"
+        if streaming_platforms:
+            streaming_status = "📺 " + ", ".join(streaming_platforms)
+            
+        # Plataforma IA
+        ia_plat = e.get('ia_platform_from_title', 'Cine')
+        
         estreno_status = f"📅 {e.get('fecha_estreno', 'N/A')[:10]}" if e.get('fecha_estreno') else "📅 N/A"
-        logging.info(f"  {i}. '{e['titulo']}' ({e['views']:,} views | Sinopsis: {sin_status} | Póster: ✓ | Streaming: {streaming_status} | Estreno ES: {estreno_status})")
+        
+        logging.info(f"  {i}. '{e['titulo']}' ({e['views']:,} views | IA: {ia_plat} | TMDB: {streaming_status} | Sinopsis: {sin_status} | Estreno: {estreno_status})")
+    
     if len(enriched) > 5:
         logging.info(f"  ... +{len(enriched)-5} más")
     
@@ -404,7 +431,7 @@ Si no es válido, ignóralo.
 
     # --- FIN DEL SINOPSIS ---
 
-    # Payload final
+    # --- 🔴 CAMBIO: Guardar la plataforma de IA en el payload ---
     payload = {
         "tmdb_id": selected["id"],
         "titulo": selected["titulo"],
@@ -412,7 +439,8 @@ Si no es válido, ignóralo.
         "sinopsis": selected["sinopsis"],
         "trailer_url": selected["trailer_url"],
         "fecha_estreno": selected["fecha_estreno"],
-        "platforms": selected["platforms"],
+        "platforms": selected["platforms"], # Plataformas de TMDB
+        "ia_platform_from_title": selected.get("ia_platform_from_title", "Cine"), # Plataforma de IA
         "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z",
         "generos": selected["generos"],  # Ya en enrich_basic
         "reparto_top": []  # O fetch aquí si quieres full
@@ -427,12 +455,16 @@ Si no es válido, ignóralo.
     fecha_estreno_log = selected['fecha_estreno'][:10] if selected['fecha_estreno'] else "N/A"
     logging.info(f"  Fecha de estreno: {fecha_estreno_log}")
     
-    # Mostrar plataformas de streaming
+    # --- 🔴 CAMBIO: Log final muestra ambas plataformas ---
+    ia_plat_final = selected.get('ia_platform_from_title', 'Cine')
+    logging.info(f"  Plataforma IA (del Título): {ia_plat_final}")
+    
+    streaming_info = ""
     if selected['platforms'].get('streaming'):
         streaming_info = f"Streaming: {', '.join(selected['platforms']['streaming'])}"
-        logging.info(f"  Plataformas disponibles: {streaming_info}")
+        logging.info(f"  Plataforma TMDB: {streaming_info}")
     else:
-        logging.info(f"  Plataformas disponibles: Cine.")
+        logging.info(f"  Plataforma TMDB: Cine.")
     
     logging.info(f"🎉 ¡Seleccionado y guardado en {NEXT_FILE}!")
 
@@ -445,9 +477,11 @@ if __name__ == "__main__":
     if result:
         print("\n" + "="*60)
         print("      ✅ PRUEBA COMPLETADA CON ÉXITO")
-        print("="*60)
+        print("="*66)
         print(f" Título: {result['titulo']}")
         print(f" Fichero: {NEXT_FILE}")
+        print(f" Plataforma IA: {result.get('ia_platform_from_title')}")
+        print(f" Plataforma TMDB: {result.get('platforms', {}).get('streaming', 'Cine')}")
     else:
         print("\n" + "="*60)
         print("      🛑 PRUEBA FALLIDA: NO SE SELECCIONÓ CANDIDATO")

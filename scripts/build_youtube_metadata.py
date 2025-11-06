@@ -99,10 +99,31 @@ def main():
             # Si la fecha viene en un formato inesperado, lo registramos y continuamos sin ella
             logging.warning(f"Formato de fecha no válido: '{fecha}'. No se usará en el título.")
     
-    # --- LÓGICA DE PLATAFORMA MEJORADA ---
+    # --- 🔴 INICIO DEL CAMBIO: LÓGICA DE PLATAFORMA MEJORADA (CON FALLBACK DE IA) ---
+    
+    # 1. Plataforma detectada por IA desde el título (Ej: "Disney+")
+    ia_platform = sel.get("ia_platform_from_title")
+
+    # 2. Plataformas de la API de TMDB (Ej: ["Disney+ (US)"] o [])
     plataformas_dict = sel.get("platforms", {})
-    streaming_platforms = plataformas_dict.get("streaming", [])
-    plataforma_principal = streaming_platforms[0] if streaming_platforms else "Cine"
+    tmdb_streaming_platforms = plataformas_dict.get("streaming", [])
+
+    plataforma_principal = "Cine" # Valor por defecto
+
+    # Prioridad 1: Usar la plataforma de la IA si existe y no es "Cine"
+    if ia_platform and ia_platform != "Cine":
+        plataforma_principal = ia_platform
+        logging.info(f"Usando plataforma detectada por IA (del título): {ia_platform}")
+    
+    # Prioridad 2: Usar la plataforma de TMDB si la IA no detectó nada
+    elif tmdb_streaming_platforms:
+        plataforma_principal = tmdb_streaming_platforms[0]
+        logging.info(f"Usando plataforma de TMDB: {plataforma_principal}")
+    
+    # Prioridad 3: Usar "Cine" (ya está como valor por defecto)
+    else:
+        logging.info("No se detectó plataforma de IA ni TMDB. Usando 'Cine'.")
+    # --- FIN LÓGICA DE PLATAFORMA ---
     
     # --- LÓGICA DE TÍTULO CON PAÍS DE ESTRENO ---
     # 1. Preparamos la plataforma con el país (si no es de España)
