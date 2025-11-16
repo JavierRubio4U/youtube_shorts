@@ -181,8 +181,23 @@ def main():
     else:
         logging.info("ℹ No se publicó ningún vídeo tras varios intentos.")
     logging.info(f"Fin Paso 6: {datetime.now().strftime('%H:%M:%S')} (duración: {int((datetime.now() - step_start).total_seconds())}s)")
-    total_time = int((datetime.now() - start_time).total_seconds())
-    logging.info(f"🎉 Total run: {total_time}s")
+    total_seconds = (datetime.now() - start_time).total_seconds()
+    total_minutes = total_seconds / 60
+    logging.info(f"🎉 Total run: {total_minutes:.1f} minutos")
+
+    # --- INICIO: Resumen final de publicación ---
+    if video_published and last_sel:
+        logging.info("="*60)
+        logging.info("📼 RESUMEN DE PUBLICACIÓN")
+        logging.info(f"  Título: {last_sel.get('titulo')}")
+        logging.info(f"  TMDB ID: {last_sel.get('tmdb_id')}")
+        logging.info(f"  Trailer URL: {last_sel.get('trailer_url')}")
+        logging.info("="*60)
+    elif not video_published:
+        logging.info("="*60)
+        logging.info("🚫 NO SE COMPLETÓ NINGUNA PUBLICACIÓN.")
+        logging.info("="*60)
+    # --- FIN: Resumen final de publicación ---
 
 if __name__ == "__main__":
     main()

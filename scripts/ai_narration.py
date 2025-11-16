@@ -45,11 +45,13 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=80, min
     **Otras Reglas:**
     1.  **RITMO Y ENERGÍA**: Frases cortas y directas, como para un Short de YouTube.
     2.  **FORMATO**: Devuelve SOLO el texto de la sinopsis. Sin saludos, sin explicaciones, sin "Aquí tienes..."
-    3.  **TONO**: 100% gamberro, coloquial, con ironía y gracia.  Pasa del lenguaje cursi de tráiler. Sé 100% andaluz, usa expreiones tipicas andaluzas.
-    4.  **PROHIBIDO**: Clichés como "una aventura épica", "un viaje inolvidable" o "personajes que te robarán el corazón".
-    **Ejemplo de estilo:** "A ver, el prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito. Ahora tiene superpoderes y la lía pardísima."
+    3.  **TONO**: 100% gamberro, **picante y muy adulto**, pero siempre con **gracia e ironía**. Tira de doble sentido y mala leche. Pasa del lenguaje cursi. Sé 100% andaluz, usa expresiones típicas.
+    4.  **PROHIBIDO**: Clichés ("aventura épica", etc.) y, por favor, **NO empieces el guion con "A ver..." o "Escucha..."**. ¡Varía el arranque, miarma!
+    **Ejemplos de estilo (para que pilles el tono, no para que copies el inicio):**
+    * "Vamo' al lío: el prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito y la lía pardísima."
+    * "Te cuento rápido: esta gente se mete en un fregao que flipas. Todo por culpa de..."
+    * "El mundo se va al carajo, y la única que puede salvarlo es la más tonta del convento. Tela."
     **Aquí tienes la sinopsis oficial (la versión aburrida para que te inspires y la destroces)** "{sel.get("sinopsis")}, si no aparece nada utiliza el titulo y el año
-    e investiga"
     """
     
     # Log aprox tokens en prompt (rough estimate)

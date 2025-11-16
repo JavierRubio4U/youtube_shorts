@@ -450,7 +450,7 @@ Si no es válido, ignóralo.
     logging.info(f"  ID: {selected['id']} | Trailer: {selected['trailer_url'][:50]}...")
     sin_preview = selected['sinopsis'][:80] + "..." if selected['sinopsis'] else "Vacía (OK)"
     logging.info(f"  Sinopsis: {sin_preview}")
-    logging.info(f"  Póster: {selected['poster_principal'][:50]}...")
+    # logging.info(f"  Póster: {selected['poster_principal'][:50]}...")
     
     fecha_estreno_log = selected['fecha_estreno'][:10] if selected['fecha_estreno'] else "N/A"
     logging.info(f"  Fecha de estreno: {fecha_estreno_log}")
