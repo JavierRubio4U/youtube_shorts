@@ -165,7 +165,7 @@ def main():
                         afx.AudioNormalize(),
                         afx.AudioFadeIn(1.0),
                         afx.AudioFadeOut(1.0),
-                        afx.MultiplyVolume(0.10)
+                        afx.MultiplyVolume(0.07)
                     ])
                     final_audio = CompositeAudioClip([audio_clip, music_clip])
                     

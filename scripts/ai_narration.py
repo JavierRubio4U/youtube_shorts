@@ -33,7 +33,7 @@ NARRATION_DIR.mkdir(parents=True, exist_ok=True) # Nos aseguramos de que exista
 def count_words(text: str) -> int:
     return len(re.findall(r'\b\w+\b', text))
 
-def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=80, min_words=65, max_retries=5) -> str | None:
+def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min_words=55, max_retries=5) -> str | None:
     logging.info(f"Usando modelo Gemini: {model}")
     current_year = datetime.datetime.now().year
     initial_prompt = f"""
@@ -45,7 +45,7 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=80, min
     **Otras Reglas:**
     1.  **RITMO Y ENERGÍA**: Frases cortas y directas, como para un Short de YouTube.
     2.  **FORMATO**: Devuelve SOLO el texto de la sinopsis. Sin saludos, sin explicaciones, sin "Aquí tienes..."
-    3.  **TONO**: 100% gamberro, **picante y muy adulto**, pero siempre con **gracia e ironía**. Tira de doble sentido y mala leche. Pasa del lenguaje cursi. Sé 100% andaluz, usa expresiones típicas.
+    3.  **TONO**: 100% gamberro, **picante y adulto**, pero siempre con **gracia e ironía**. Tira de doble sentido y sarcasmo agudo. Pasa del lenguaje cursi. Sé 100% andaluz, usa expresiones típicas.
     4.  **PROHIBIDO**: Clichés ("aventura épica", etc.) y, por favor, **NO empieces el guion con "A ver..." o "Escucha..."**. ¡Varía el arranque, miarma!
     **Ejemplos de estilo (para que pilles el tono, no para que copies el inicio):**
     * "Vamo' al lío: el prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito y la lía pardísima."
@@ -73,10 +73,14 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=80, min
                     stop_sequences=["\n\n", "###"]  # Fuerza fin
                 ),
                 safety_settings={
-                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH, # Tu cambio
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    # HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    # HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                    # HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                    # HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                 }
             )
             
@@ -216,7 +220,7 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
 
         # Post-procesar con FFmpeg para acelerar (corregido: usa temp_path)
         final_wav_path = _get_tmp_voice_path(tmdb_id, slug, tmpdir)
-        VOLUME_FACTOR = 1.5  # Ajusta aquí: 1.0 = normal, 1.5 = +50%, 2.0 = doble
+        VOLUME_FACTOR = 1.0  # Ajusta aquí: 1.0 = normal, 1.5 = +50%, 2.0 = doble
         ffmpeg_cmd = [
             'ffmpeg', '-y', '-i', str(temp_path),  # <-- Corregido: temp_path
             '-filter:a', f'atempo={SPEED_FACTOR},volume={VOLUME_FACTOR}',
@@ -255,46 +259,25 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, CONFIG_
         
     narracion = _generate_narration_with_ai(sel, model=GEMINI_MODEL)
     
-    voice_path = None
-    if narracion:
-        logging.info(f"Narración generada completa: {narracion}")
-        voice_path = _synthesize_elevenlabs_with_pauses(narracion, tmpdir, tmdb_id, slug, CONFIG_DIR)
-    else:
-        logging.warning("No se generó narración. Creando un archivo de audio vacío.")
-        voice_path = tmpdir / f"silent_{tmdb_id}_{slug}.wav"
-
-        duration = 28.0
-        try:
-            # Intenta AudioArrayClip primero (ahora importado correctamente)
-            sample_rate = 44100
-            num_samples = int(duration * sample_rate)
-            silence_stereo = np.zeros((num_samples, 2))  # (samples, channels)
-            empty_audio = AudioArrayClip(silence_stereo, fps=sample_rate)
-            empty_audio.write_audiofile(str(voice_path), logger=None)
-            logging.info(f"Audio silencioso con AudioArrayClip: {duration}s")
-        except Exception as e:
-            logging.warning(f"AudioArrayClip falló ({e}). Fallback a lambda simple.")
-            # Fallback a tu lambda [0, 0]
-            empty_audio = AudioClip(lambda t: [0, 0], duration=duration, fps=44100)
-            empty_audio.write_audiofile(str(voice_path), logger=None)
-
-        # Verificación post-write
-        try:
-            test_clip = AudioFileClip(str(voice_path))
-            actual_duration = test_clip.duration
-            test_clip.close()
-            if abs(actual_duration - duration) > 0.1:
-                logging.error(f"Duración audio inválida: {actual_duration}s (esperado {duration}s)")
-            else:
-                logging.info(f"Audio verificado OK: {actual_duration:.2f}s")
-        except Exception as e:
-            logging.error(f"Error verificando audio: {e}")
-
-        narracion = " "  # Espacio para no romper build_short
+    # --- CAMBIO: Si no hay narración, lanzamos error y abortamos ---
+    if not narracion:
+        logging.error("🛑 CRÍTICO: Gemini no generó el guion (posible bloqueo de seguridad).")
+        logging.error("🛑 Abortando para no crear un vídeo mudo.")
+        # Esto detendrá el flujo actual y saltará al 'except' de publish.py (si lo pusiste)
+        # o detendrá el script completamente.
+        raise ValueError("Abortado: Fallo en generación de guion.")
+    # ---------------------------------------------------------------
+    
+    logging.info(f"Narración generada completa: {narracion}")
+    
+    # Si llegamos aquí, ES SEGURO que hay texto
+    voice_path = _synthesize_elevenlabs_with_pauses(narracion, tmpdir, tmdb_id, slug, CONFIG_DIR)
     
     if voice_path and voice_path.exists():
         return narracion, voice_path
     
+    # Si falló ElevenLabs pero había texto:
+    logging.error("🛑 Falló la síntesis de voz en ElevenLabs.")
     return None, None
 
 def main() -> tuple[str | None, Path | None] | None:
