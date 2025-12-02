@@ -187,9 +187,22 @@ def main():
 
     # --- INICIO: Resumen final de publicación ---
     if video_published and last_sel:
+        # Lógica de prioridad para mostrar la plataforma final real
+        ia_plat = last_sel.get("ia_platform_from_title")
+        tmdb_plats = last_sel.get("platforms", {}).get("streaming", [])
+        
+        if ia_plat and ia_plat != "Cine":
+            final_platform_display = f"{ia_plat} (IA)"
+        elif tmdb_plats:
+            final_platform_display = f"{tmdb_plats[0]} (TMDB)"
+        else:
+            final_platform_display = "Cine"
+
         logging.info("="*60)
         logging.info("📼 RESUMEN DE PUBLICACIÓN")
         logging.info(f"  Título: {last_sel.get('titulo')}")
+        logging.info(f"  Plataforma: {final_platform_display}")
+        logging.info(f"  Visualizaciones: {last_sel.get('views', 0):,}")
         logging.info(f"  TMDB ID: {last_sel.get('tmdb_id')}")
         logging.info(f"  Trailer URL: {last_sel.get('trailer_url')}")
         logging.info("="*60)

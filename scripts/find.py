@@ -365,6 +365,21 @@ Si no es válido, ignóralo.
         # Enrich básico: TMDB sin web (rápido)
         enriched_data = enrich_movie_basic(vid['tmdb_id'], vid['pelicula'], vid['año'], vid['trailer_url'])  # Nueva func básica
         if enriched_data and enriched_data.get('has_poster'):
+            # --- 🛑 INICIO FILTRO DE FECHA (Nuevo) ---
+            estreno_str = enriched_data.get('fecha_estreno')
+            if estreno_str:
+                try:
+                    # Parseamos la fecha (ej: 2025-03-20)
+                    fecha_obj = datetime.strptime(estreno_str.split('T')[0], "%Y-%m-%d")
+                    # Calculamos límite: Hoy menos 14 días
+                    limite = datetime.now() - timedelta(days=14)
+                    
+                    if fecha_obj < limite:
+                        logging.info(f"✗ {vid['pelicula']} descartada (Estreno pasado: {estreno_str[:10]})")
+                        continue # Salta al siguiente candidato
+                except ValueError:
+                    pass # Si la fecha está rara, la dejamos pasar por si acaso
+            # --- 🛑 FIN FILTRO DE FECHA ---
             enriched_data['needs_web'] = not bool(enriched_data.get('sinopsis', ''))  # Marca si necesita web
             enriched_data['año'] = vid['año']  # ← ¡Aquí el fix! Guarda 'año' para Paso 6
             enriched_data['views'] = vid['views']
@@ -443,7 +458,8 @@ Si no es válido, ignóralo.
         "ia_platform_from_title": selected.get("ia_platform_from_title", "Cine"), # Plataforma de IA
         "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z",
         "generos": selected["generos"],  # Ya en enrich_basic
-        "reparto_top": []  # O fetch aquí si quieres full
+        "reparto_top": [],
+        "views": selected.get("views", 0)
     }
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     logging.info(f"Top 1: '{selected['titulo']}' ({selected['views']:,} views).")
@@ -474,14 +490,27 @@ Si no es válido, ignóralo.
 if __name__ == "__main__":
     print("--- Ejecutando 'find.py' en modo de prueba ---")
     result = find_and_select_next()
+    
     if result:
+        # Preparamos el string de plataformas TMDB para que se lea bien
+        tmdb_plats = result.get('platforms', {}).get('streaming', [])
+        tmdb_str = ", ".join(tmdb_plats) if tmdb_plats else "Cine / Ninguna"
+        
+        # Formateo de visualizaciones con separador de miles
+        views_formatted = f"{result.get('views', 0):,}"
+
         print("\n" + "="*60)
         print("      ✅ PRUEBA COMPLETADA CON ÉXITO")
-        print("="*66)
-        print(f" Título: {result['titulo']}")
-        print(f" Fichero: {NEXT_FILE}")
-        print(f" Plataforma IA: {result.get('ia_platform_from_title')}")
-        print(f" Plataforma TMDB: {result.get('platforms', {}).get('streaming', 'Cine')}")
+        print("="*60)
+        print(f"  Título:          {result.get('titulo')}")
+        print(f"  Visualizaciones: {views_formatted}")
+        print(f"  TMDB ID:         {result.get('tmdb_id')}")
+        print(f"  Plataforma IA:   {result.get('ia_platform_from_title', 'Cine')}")
+        print(f"  Plataforma TMDB: {tmdb_str}")
+        print(f"  Trailer URL:     {result.get('trailer_url')}")
+        print("-" * 60)
+        print(f"  Fichero guardado en: {NEXT_FILE}")
+        print("="*60)
     else:
         print("\n" + "="*60)
         print("      🛑 PRUEBA FALLIDA: NO SE SELECCIONÓ CANDIDATO")
