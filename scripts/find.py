@@ -461,26 +461,22 @@ Si no es válido, ignóralo.
         "reparto_top": [],
         "views": selected.get("views", 0)
     }
+
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    logging.info(f"Top 1: '{selected['titulo']}' ({selected['views']:,} views).")
-    logging.info(f"  ID: {selected['id']} | Trailer: {selected['trailer_url'][:50]}...")
-    sin_preview = selected['sinopsis'][:80] + "..." if selected['sinopsis'] else "Vacía (OK)"
-    logging.info(f"  Sinopsis: {sin_preview}")
-    # logging.info(f"  Póster: {selected['poster_principal'][:50]}...")
     
-    fecha_estreno_log = selected['fecha_estreno'][:10] if selected['fecha_estreno'] else "N/A"
-    logging.info(f"  Fecha de estreno: {fecha_estreno_log}")
-    
-    # --- 🔴 CAMBIO: Log final muestra ambas plataformas ---
+    # --- LOG VISUAL FINAL (Modificado) ---
+    tmdb_plats = selected.get('platforms', {}).get('streaming', [])
+    tmdb_str = ", ".join(tmdb_plats) if tmdb_plats else "Cine"
+    views_formatted = f"{selected.get('views', 0):,}"
     ia_plat_final = selected.get('ia_platform_from_title', 'Cine')
-    logging.info(f"  Plataforma IA (del Título): {ia_plat_final}")
-    
-    streaming_info = ""
-    if selected['platforms'].get('streaming'):
-        streaming_info = f"Streaming: {', '.join(selected['platforms']['streaming'])}"
-        logging.info(f"  Plataforma TMDB: {streaming_info}")
-    else:
-        logging.info(f"  Plataforma TMDB: Cine.")
+
+    logging.info("="*60)
+    logging.info(f"  Título:          {selected['titulo']}")
+    logging.info(f"  Visualizaciones: {views_formatted}")
+    logging.info(f"  Plataforma IA:   {ia_plat_final}")
+    logging.info(f"  Plataforma TMDB: {tmdb_str}")
+    logging.info(f"  Trailer URL:     {selected['trailer_url']}")
+    logging.info("-" * 60)
     
     logging.info(f"🎉 ¡Seleccionado y guardado en {NEXT_FILE}!")
 
