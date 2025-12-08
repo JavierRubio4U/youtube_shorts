@@ -33,25 +33,38 @@ NARRATION_DIR.mkdir(parents=True, exist_ok=True) # Nos aseguramos de que exista
 def count_words(text: str) -> int:
     return len(re.findall(r'\b\w+\b', text))
 
-def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min_words=55, max_retries=5) -> str | None:
+
+
+def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=65, min_words=50, max_retries=5) -> str | None:
     logging.info(f"Usando modelo Gemini: {model}")
     current_year = datetime.datetime.now().year
+    
+    # --- CAMBIO IMPORTANTE: Prompt 'Director de Doblaje Andaluz' ---
     initial_prompt = f"""
-    Eres "La Sinóptica Gamberra", el terror de los departamentos de marketing. 
-    Tu superpoder es contar de qué va una película como si se la estuvieras resumiendo a un colega en un bar, con cero paciencia para tonterías.
-    tienes ese arte de hablar con acento andaluz: directo, con ironia y con mucha gracia. Tu misión, si la aceptas (y más te vale), 
-    es crear una sinopsis brutalmente honesta y divertida para la película '{sel.get("titulo")}' del año '{sel.get("año",current_year)}'.
-    **REGLA MÁS IMPORTANTE E INQUEBRANTABLE:** El guion DEBE tener **ENTRE {min_words} Y {max_words} PALABRAS**. Es un requisito técnico obligatorio. Cuenta las palabras.
-    **Otras Reglas:**
-    1.  **RITMO Y ENERGÍA**: Frases cortas y directas, como para un Short de YouTube.
-    2.  **FORMATO**: Devuelve SOLO el texto de la sinopsis. Sin saludos, sin explicaciones, sin "Aquí tienes..."
-    3.  **TONO**: 100% gamberro, **picante y adulto**, pero siempre con **gracia e ironía**. Tira de doble sentido y sarcasmo agudo. Pasa del lenguaje cursi. Sé 100% andaluz, usa expresiones típicas.
-    4.  **PROHIBIDO**: Clichés ("aventura épica", etc.) y, por favor, **NO empieces el guion con "A ver..." o "Escucha..."**. ¡Varía el arranque, miarma!
-    **Ejemplos de estilo (para que pilles el tono, no para que copies el inicio):**
-    * "Vamo' al lío: el prota es un pringao, ¿vale? Pero un día... ¡PUM! Le cae un meteorito y la lía pardísima."
-    * "Te cuento rápido: esta gente se mete en un fregao que flipas. Todo por culpa de..."
-    * "El mundo se va al carajo, y la única que puede salvarlo es la más tonta del convento. Tela."
-    **Aquí tienes la sinopsis oficial (la versión aburrida para que te inspires y la destroces)** "{sel.get("sinopsis")}, si no aparece nada utiliza el titulo y el año
+    Eres "La Sinóptica Gamberra", el terror de los departamentos de marketing.
+    
+    TU MISIÓN:
+    Crear una sinopsis de la película '{sel.get("titulo")}' ({sel.get("año", current_year)}) para un Short de YouTube, pero actuando como **INGENIERA DE VOZ (TTS)**.
+    No solo escribes texto, escribes **instrucciones de actuación** para la IA.
+    
+    INSTRUCCIONES DE FORMATO OBLIGATORIAS (PARA DAR EXPRESIVIDAD):
+    1. **EL GUION DE CORTE (-):** Úsalo para tartamudear, dudar o corregirte. Da un realismo brutal.
+       *Ejemplo:* "Es que yo- yo no me lo creo." / "Pero el tío es- es tontísimo."
+    2. **PUNTOS SUSPENSIVOS (...):** Úsalos para pausas dramáticas, ironía o suspense.
+       *Ejemplo:* "Parecía fácil... ja, ni de coña."
+    3. **MAYÚSCULAS SELECTIVAS:** Pon en MAYÚSCULAS solo 1 palabra clave por frase para dar un golpe de voz.
+       *Ejemplo:* "Y de repente... ¡PUM! Todo explota." (No escribas todo en mayúsculas).
+    4. **FONÉTICA ANDALUZA LEIBLE:** Escribe "pa" en vez de para, "tó" en vez de todo, "na" en vez de nada. Pero que se entienda.
+    5. **ALARGAMIENTO VOCAL:** Alarga vocales (máx 3 letras) para sarcasmo.
+       *Ejemplo:* "Una idea bueeenísima."
+    6. **MULETILLAS:** Empieza con gancho: "Cusha,", "Illo,", "Ojo,".
+
+    REQUISITOS DE CONTENIDO:
+    - Longitud estricta: **ENTRE {min_words} Y {max_words} PALABRAS**.
+    - Tono: Andaluz, gamberro, picante, irónico y rápido.
+    - Sinopsis base: "{sel.get("sinopsis")}" (si no hay nada, invéntatelo basado en el título).
+
+    OUTPUT: Solo el texto del guion. Nada más.
     """
     
     # Log aprox tokens en prompt (rough estimate)
@@ -67,7 +80,7 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min
                 initial_prompt,
                 generation_config=GenerationConfig(
                     max_output_tokens=2048,  # Aumentado
-                    temperature=0.1,  # Bajo para consistencia
+                    temperature=0.7,  # Bajo para consistencia
                     top_p=0.8,
                     top_k=40,
                     stop_sequences=["\n\n", "###"]  # Fuerza fin
@@ -77,10 +90,6 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=70, min
                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH, # Tu cambio
                     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                    # HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                    # HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                    # HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                    # HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                 }
             )
             
@@ -188,20 +197,19 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         
         client = ElevenLabs(api_key=api_key)
         
-        # Insertar pausas simples con SSML (para frases cortas)
-        ssml_text = text.replace('.', '.<break time="0.5s"/>').replace('!', '!<break time="0.3s"/>')
-        ssml_text = f'<speak>{ssml_text}</speak>'
+        text_to_send = text
         
         # Generar audio con ElevenLabs (método correcto)
         SPEED_FACTOR = 1.15
         VOICE_ID = "2VUqK4PEdMj16L6xTN4J"  # Voz andaluza expresiva
         audio_stream = client.text_to_speech.convert(
             voice_id=VOICE_ID,
-            text=ssml_text,
+            text=text_to_send,
             model_id="eleven_multilingual_v2",  # Soporta SSML y español
             voice_settings={
-                "stability": 0.2,
-                "style": 0.9,
+                "stability": 0.40,      # <-- CAMBIO: 0.40 es el Sweet Spot para expresividad controlada
+                "style": 0.70,          # <-- CAMBIO: 0.70 para acentuar la actuación andaluza
+                "similarity_boost": 0.75,
                 "use_speaker_boost": True
             }
         )
