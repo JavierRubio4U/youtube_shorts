@@ -51,6 +51,12 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=60, min
         main_actor = "el protagonista" # Fallback si no hay datos
         
     logging.info(f"Actor principal identificado: {main_actor}")
+
+    # Lógica dinámica para el prompt: Si no tenemos nombre, pedimos motes
+    if main_actor == "el protagonista":
+        actor_instruction = "No sabemos el nombre del actor, así que usa motes como 'el nota', 'la gachí', 'el prenda' o 'la chiquilla'. NO digas 'el protagonista'."
+    else:
+        actor_instruction = f"Menciona al actor/actriz **{main_actor}** como si fuera tu vecino/a (ej: 'ahí tienes al tito {main_actor.split()[0]}')."
     
     # --- Prompt Optimizado: Protagonista + Longitud Asegurada ---
     initial_prompt = f"""
@@ -61,22 +67,20 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=60, min
     
     ESTRUCTURA OBLIGATORIA (Sigue estos pasos para rellenar tiempo):
     1. **El Gancho:** Empieza con una frase o expresion andaluza potente.
-    2. **El/La Protagonista:** Tienes que hablar del personaje principal.
-       * IMPORTANTE: Menciona al actor **{main_actor}** si eso ayuda al chiste (ej: "Ahí tienes al {main_actor} poniendo caritas").
-       * Dime qué desgracia o lío tiene encima.
+    2. **El Personaje:** * {actor_instruction}
+       * Cuenta qué desgracia le pasa. Tiene que sonar a problema gordo.
     3. **El Nudo:** Cómo intenta arreglarlo (y si la lía más).
     4. **El Cierre:** Un comentario final irónico invitando a verla.
     
     ESTILO DE NARRACIÓN:
     - **Céntrate en el personaje:** Usa expresiones como "el pobre desgraciao", "la tía esta", "el nota".
-    - **Usa el nombre del actor ({main_actor})** para dar familiaridad, como si fuera tu vecino.
+    - **Metáforas de Madre Andaluza:** Usa comparaciones costumbristas
     - Naturalidad ante todo: Habla como si le contaras un cotilleo a un colega.
     - Acento Andaluz Escrito pero legible.
     - Humor Negro/Adulto: Se permite ser picante e irónica.
     - **Usa frases cortas, PERO usa varias.**
     
     CAJA DE HERRAMIENTAS DE ACTUACIÓN (Usa estas técnicas SOLO si la frase lo pide):
-    - **El Tartamudeo (-):** Úsalo para indignación o duda real. (Ej: "Es que es- es pa matarlo").
     - **Alargamiento Vocal:** Alarga vocales (máx 3 letras) para sarcasmo puro. (Ej: "Una idea bueeenísima").
     - **Puntos Suspensivos (...):** Para dejar caer una ironía o crear suspense.
     - **Mayúsculas Selectivas:** Pon EN MAYÚSCULAS solo 1 palabra clave para dar un grito o golpe de voz.
@@ -85,7 +89,6 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=60, min
     DATOS DE LA PELÍCULA:
     - Título: {sel.get("titulo")}
     - Año: {sel.get("año", current_year)}
-    - Actor Principal: {main_actor}
     - Sinopsis base: "{sel.get("sinopsis")}"
 
     OUTPUT: Solo el texto del guion. Asegúrate de llegar al mínimo de {min_words} palabras describiendo bien las penas del protagonista.
