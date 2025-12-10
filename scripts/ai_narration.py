@@ -35,36 +35,60 @@ def count_words(text: str) -> int:
 
 
 
-def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=65, min_words=50, max_retries=5) -> str | None:
+def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=60, min_words=45, max_retries=5) -> str | None:
     logging.info(f"Usando modelo Gemini: {model}")
     current_year = datetime.datetime.now().year
+
+    # --- NUEVO: Extracción segura del Actor Principal ---
+    # Intentamos sacar el primer actor de la lista 'cast' o 'actors'
+    cast_list = sel.get("cast") or sel.get("actors") or []
     
-    # --- CAMBIO IMPORTANTE: Prompt 'Director de Doblaje Andaluz' ---
+    if isinstance(cast_list, list) and len(cast_list) > 0:
+        main_actor = cast_list[0] # Cogemos el primero (el prota)
+    elif isinstance(cast_list, str):
+        main_actor = cast_list # Por si viene como string
+    else:
+        main_actor = "el protagonista" # Fallback si no hay datos
+        
+    logging.info(f"Actor principal identificado: {main_actor}")
+    
+    # --- Prompt Optimizado: Protagonista + Longitud Asegurada ---
     initial_prompt = f"""
-    Eres "La Sinóptica Gamberra", el terror de los departamentos de marketing.
+    Eres "La Sinóptica Gamberra", una crítica de cine andaluza, sarcástica y sin filtros.
     
-    TU MISIÓN:
-    Crear una sinopsis de la película '{sel.get("titulo")}' ({sel.get("año", current_year)}) para un Short de YouTube, pero actuando como **INGENIERA DE VOZ (TTS)**.
-    No solo escribes texto, escribes **instrucciones de actuación** para la IA.
+    TU OBJETIVO:
+    Crear un guion de narración de **{min_words} a {max_words} PALABRAS** (OBLIGATORIO, NO LO HAGAS CORTO).
     
-    INSTRUCCIONES DE FORMATO OBLIGATORIAS (PARA DAR EXPRESIVIDAD):
-    1. **EL GUION DE CORTE (-):** Úsalo para tartamudear, dudar o corregirte. Da un realismo brutal.
-       *Ejemplo:* "Es que yo- yo no me lo creo." / "Pero el tío es- es tontísimo."
-    2. **PUNTOS SUSPENSIVOS (...):** Úsalos para pausas dramáticas, ironía o suspense.
-       *Ejemplo:* "Parecía fácil... ja, ni de coña."
-    3. **MAYÚSCULAS SELECTIVAS:** Pon en MAYÚSCULAS solo 1 palabra clave por frase para dar un golpe de voz.
-       *Ejemplo:* "Y de repente... ¡PUM! Todo explota." (No escribas todo en mayúsculas).
-    4. **FONÉTICA ANDALUZA LEIBLE:** Escribe "pa" en vez de para, "tó" en vez de todo, "na" en vez de nada. Pero que se entienda.
-    5. **ALARGAMIENTO VOCAL:** Alarga vocales (máx 3 letras) para sarcasmo.
-       *Ejemplo:* "Una idea bueeenísima."
-    6. **MULETILLAS:** Empieza con gancho: "Cusha,", "Illo,", "Ojo,".
+    ESTRUCTURA OBLIGATORIA (Sigue estos pasos para rellenar tiempo):
+    1. **El Gancho:** Empieza con una frase o expresion andaluza potente.
+    2. **El/La Protagonista:** Tienes que hablar del personaje principal.
+       * IMPORTANTE: Menciona al actor **{main_actor}** si eso ayuda al chiste (ej: "Ahí tienes al {main_actor} poniendo caritas").
+       * Dime qué desgracia o lío tiene encima.
+    3. **El Nudo:** Cómo intenta arreglarlo (y si la lía más).
+    4. **El Cierre:** Un comentario final irónico invitando a verla.
+    
+    ESTILO DE NARRACIÓN:
+    - **Céntrate en el personaje:** Usa expresiones como "el pobre desgraciao", "la tía esta", "el nota".
+    - **Usa el nombre del actor ({main_actor})** para dar familiaridad, como si fuera tu vecino.
+    - Naturalidad ante todo: Habla como si le contaras un cotilleo a un colega.
+    - Acento Andaluz Escrito pero legible.
+    - Humor Negro/Adulto: Se permite ser picante e irónica.
+    - **Usa frases cortas, PERO usa varias.**
+    
+    CAJA DE HERRAMIENTAS DE ACTUACIÓN (Usa estas técnicas SOLO si la frase lo pide):
+    - **El Tartamudeo (-):** Úsalo para indignación o duda real. (Ej: "Es que es- es pa matarlo").
+    - **Alargamiento Vocal:** Alarga vocales (máx 3 letras) para sarcasmo puro. (Ej: "Una idea bueeenísima").
+    - **Puntos Suspensivos (...):** Para dejar caer una ironía o crear suspense.
+    - **Mayúsculas Selectivas:** Pon EN MAYÚSCULAS solo 1 palabra clave para dar un grito o golpe de voz.
+    - **Doble Salto de Línea:** Úsalo siempre para separar ideas y que la voz respire.
 
-    REQUISITOS DE CONTENIDO:
-    - Longitud estricta: **ENTRE {min_words} Y {max_words} PALABRAS**.
-    - Tono: Andaluz, gamberro, picante, irónico y rápido.
-    - Sinopsis base: "{sel.get("sinopsis")}" (si no hay nada, invéntatelo basado en el título).
+    DATOS DE LA PELÍCULA:
+    - Título: {sel.get("titulo")}
+    - Año: {sel.get("año", current_year)}
+    - Actor Principal: {main_actor}
+    - Sinopsis base: "{sel.get("sinopsis")}"
 
-    OUTPUT: Solo el texto del guion. Nada más.
+    OUTPUT: Solo el texto del guion. Asegúrate de llegar al mínimo de {min_words} palabras describiendo bien las penas del protagonista.
     """
     
     # Log aprox tokens en prompt (rough estimate)
@@ -83,7 +107,7 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=65, min
                     temperature=0.7,  # Bajo para consistencia
                     top_p=0.8,
                     top_k=40,
-                    stop_sequences=["\n\n", "###"]  # Fuerza fin
+                    stop_sequences=["###"]  # Fuerza fin
                 ),
                 safety_settings={
                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -200,15 +224,15 @@ def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, sl
         text_to_send = text
         
         # Generar audio con ElevenLabs (método correcto)
-        SPEED_FACTOR = 1.15
+        SPEED_FACTOR = 1.00
         VOICE_ID = "2VUqK4PEdMj16L6xTN4J"  # Voz andaluza expresiva
         audio_stream = client.text_to_speech.convert(
             voice_id=VOICE_ID,
             text=text_to_send,
             model_id="eleven_multilingual_v2",  # Soporta SSML y español
             voice_settings={
-                "stability": 0.40,      # <-- CAMBIO: 0.40 es el Sweet Spot para expresividad controlada
-                "style": 0.70,          # <-- CAMBIO: 0.70 para acentuar la actuación andaluza
+                "stability": 0.45,      # <-- CAMBIO: 0.40 es el Sweet Spot para expresividad controlada
+                "style": 0.60,          # <-- CAMBIO: 0.70 para acentuar la actuación andaluza
                 "similarity_boost": 0.75,
                 "use_speaker_boost": True
             }
