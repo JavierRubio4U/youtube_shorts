@@ -7,7 +7,7 @@ import google.generativeai as genai
 from google.generativeai.types import GenerationConfig, HarmCategory, HarmBlockThreshold
 from slugify import slugify
 from moviepy import AudioFileClip, AudioClip, concatenate_audioclips
-from moviepy.audio.AudioClip import AudioArrayClip  # Import correcto para AudioArrayClip
+from moviepy.audio.AudioClip import AudioArrayClip
 import warnings
 warnings.filterwarnings("ignore", message=".*torch.load.*weights_only.*")
 import logging
@@ -18,153 +18,158 @@ import shutil
 from gemini_config import GEMINI_MODEL
 import datetime
 
-
 # --- Logging y Constantes ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-# GEMINI_MODEL = 'gemini-2.5-pro'  # Revertido: Disponible en tu entorno
 
-# <<< CAMBIO: Definimos la ruta de assets/narration >>>
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS_DIR = ROOT / "assets"
 NARRATION_DIR = ASSETS_DIR / "narration"
-NARRATION_DIR.mkdir(parents=True, exist_ok=True) # Nos aseguramos de que exista
+NARRATION_DIR.mkdir(parents=True, exist_ok=True)
+HISTORY_FILE = ROOT / "output" / "state" / "hype_history.json"
 
 # --- Funciones ---
 def count_words(text: str) -> int:
     return len(re.findall(r'\b\w+\b', text))
 
+def calculate_hype_metrics(sel: dict, save_to_history: bool = True) -> dict:
+    """
+    Calcula el hype y da una DIRECCIÓN CREATIVA ABIERTA (sin frases fijas).
+    """
+    try:
+        views = sel.get("views", 0) or sel.get("view_count", 0)
+        pub_date_raw = sel.get("upload_date") or sel.get("publish_date") or ""
+        movie_title = sel.get("titulo", "Desconocido")
+        
+        if not pub_date_raw or not views:
+            return {
+                "score": 0, 
+                "category": "BAJO", 
+                "instruction": "Actitud: Pasotismo. Invéntate cualquier excusa absurda para no verla."
+            }
 
+        # Normalización de fecha
+        if len(pub_date_raw) == 8 and pub_date_raw.isdigit():
+            pub_date = datetime.datetime.strptime(pub_date_raw, "%Y%m%d")
+        elif 'T' in pub_date_raw:
+            pub_date = datetime.datetime.strptime(pub_date_raw.split('T')[0], "%Y-%m-%d")
+        elif '-' in pub_date_raw:
+            pub_date = datetime.datetime.strptime(pub_date_raw, "%Y-%m-%d")
+        else:
+            pub_date = datetime.datetime.now() - datetime.timedelta(days=1)
+
+        # Cálculo
+        now = datetime.datetime.now()
+        hours_diff = (now - pub_date).total_seconds() / 3600
+        if hours_diff < 1: hours_diff = 1
+        velocity = views / hours_diff 
+
+        # --- Categorías con INSTRUCCIONES ABIERTAS ---
+        # Umbrales ajustados: <1000 (Bajo), <2500 (Medio), >2500 (Alto)
+        
+        if velocity < 1000:
+            category = "BAJO"
+            # CAMBIO: Sin frases fijas. Libertad para inventar excusas.
+            instruction = "Actitud: Desinterés y Pereza Máxima. El tráiler no lo ve nadie. Invéntate una excusa surrealista y diferente cada vez para no ir al cine (ej: tienes que peinar a tu iguana, se te ha olvidado andar, etc.) y dile al espectador que vaya él solo."
+            
+        elif velocity < 2500:
+            category = "MEDIO"
+            # CAMBIO: Libertad para proponer "tratos" diferentes.
+            instruction = "Actitud: Interesada y Pícara. La peli pinta bien. Proponle al espectador ir al cine juntos, PERO ponle una condición de 'cara dura' distinta cada vez (que te lleve a caballito, que pague la cena de lujo, que te abanique durante la peli...)."
+            
+        else:
+            category = "ALTO"
+            # CAMBIO: Libertad para exagerar.
+            instruction = "Actitud: Hype Desmedido y Locura. Es un exitazo. Ponte eufórica. Usa una comparación exagerada andaluza para decir que hay que verla OBLIGATORIAMENTE en pantalla grande o se acaba el mundo."
+
+        # --- 💾 GUARDADO DE HISTORIAL ---
+        if save_to_history:
+            history_entry = {
+                "movie": movie_title,
+                "execution_date": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "upload_date": pub_date.strftime("%Y-%m-%d"),
+                "hours_since_upload": round(hours_diff, 2),
+                "views": views,
+                "velocity_views_per_hour": round(velocity, 2),
+                "hype_category": category
+            }
+            # Carga segura
+            history_data = []
+            if HISTORY_FILE.exists():
+                try: history_data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+                except: pass
+            
+            history_data.append(history_entry)
+            HISTORY_FILE.write_text(json.dumps(history_data, indent=4, ensure_ascii=False), encoding="utf-8")
+            logging.info(f"📊 Hype: {velocity:.0f} v/h | Cat: {category} | Histórico guardado.")
+        else:
+            logging.info(f"📊 Hype (Prompt): {velocity:.0f} v/h | Cat: {category}")
+
+        return {"score": round(velocity, 2), "category": category, "instruction": instruction}
+
+    except Exception as e:
+        logging.error(f"Error calculando hype: {e}")
+        return {"score": 0, "category": "ERROR", "instruction": "Invita a verla sin mojarte mucho."}
 
 def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=60, min_words=45, max_retries=5) -> str | None:
     logging.info(f"Usando modelo Gemini: {model}")
-    current_year = datetime.datetime.now().year
-
-    # --- NUEVO: Extracción segura del Actor Principal ---
-    # Intentamos sacar el primer actor de la lista 'cast' o 'actors'
-    cast_list = sel.get("cast") or sel.get("actors") or []
     
+    # --- Extracción Actor Principal ---
+    cast_list = sel.get("cast") or sel.get("actors") or []
+    logging.info(f"🕵️ Raw Cast Data: {cast_list}") 
+
     if isinstance(cast_list, list) and len(cast_list) > 0:
-        main_actor = cast_list[0] # Cogemos el primero (el prota)
-    elif isinstance(cast_list, str):
-        main_actor = cast_list # Por si viene como string
+        main_actor = cast_list[0]
+        # CAMBIO: Instrucción abierta sobre referencias culturales
+        step1_instruction = f"""1. **El Protagonista:** Menciona a **{main_actor}**. 
+        Usa tu base de datos de cine para hacer una referencia ácida o gamberra a su pasado (algún papel icónico, algún escándalo, o si siempre hace lo mismo).
+        ¡Sé creativa! No uses siempre las mismas fórmulas."""
     else:
-        main_actor = "el protagonista" # Fallback si no hay datos
+        main_actor = "el protagonista"
+        step1_instruction = "1. **El Protagonista:** No sabemos el nombre. Búrlate de que han cogido a uno de la calle o que es un 'héroe marca blanca'. Improvisa el insulto cariñoso."
         
     logging.info(f"Actor principal identificado: {main_actor}")
 
-    # Lógica dinámica para el prompt: Si no tenemos nombre, pedimos motes
-    if main_actor == "el protagonista":
-        actor_instruction = "No sabemos el nombre del actor, así que usa motes como 'el nota', 'la gachí', 'el prenda' o 'la chiquilla'. NO digas 'el protagonista'."
-    else:
-        actor_instruction = f"Menciona al actor/actriz **{main_actor}** como si fuera tu vecino/a (ej: 'ahí tienes al tito {main_actor.split()[0]}')."
-    
-    # --- Prompt Optimizado: Protagonista + Longitud Asegurada ---
+    # Hype (sin duplicar historial)
+    hype_data = calculate_hype_metrics(sel, save_to_history=False)
+
+    # --- Prompt General ---
     initial_prompt = f"""
-    Eres "La Sinóptica Gamberra", una crítica de cine andaluza, sarcástica y sin filtros.
+    Eres "La Sinóptica Gamberra", una crítica de cine andaluza, sarcástica y con mucha calle.
     
-    TU OBJETIVO:
-    Crear un guion de narración de **{min_words} a {max_words} PALABRAS** (OBLIGATORIO, NO LO HAGAS CORTO).
+    TU OBJETIVO: Guion de **{min_words} a {max_words} PALABRAS**.
     
-    ESTRUCTURA OBLIGATORIA (Sigue estos pasos para rellenar tiempo):
-    1. **El Gancho:** Empieza con una frase o expresion andaluza potente.
-    2. **El Personaje:** * {actor_instruction}
-       * Cuenta qué desgracia le pasa. Tiene que sonar a problema gordo.
-    3. **El Nudo:** Cómo intenta arreglarlo (y si la lía más).
-    4. **El Cierre:** Un comentario final irónico invitando a verla.
+    ESTRUCTURA (Improvisa el contenido, respeta el orden):
+    {step1_instruction}
+    2. **El Cotilleo (Trama):** Cuenta el problema de la peli como si fuera un chisme de vecinas. Haz que suene a lío gordo.
+    3. **El Veredicto:** {hype_data['instruction']}
     
-    ESTILO DE NARRACIÓN:
-    - **Céntrate en el personaje:** Usa expresiones como "el pobre desgraciao", "la tía esta", "el nota".
-    - **Metáforas de Madre Andaluza:** Usa comparaciones costumbristas
-    - Naturalidad ante todo: Habla como si le contaras un cotilleo a un colega.
-    - Acento Andaluz Escrito pero legible.
-    - Humor Negro/Adulto: Se permite ser picante e irónica.
-    - **Usa frases cortas, PERO usa varias.**
-    
-    CAJA DE HERRAMIENTAS DE ACTUACIÓN (Usa estas técnicas SOLO si la frase lo pide):
-    - **Alargamiento Vocal:** Alarga vocales (máx 3 letras) para sarcasmo puro. (Ej: "Una idea bueeenísima").
-    - **Puntos Suspensivos (...):** Para dejar caer una ironía o crear suspense.
-    - **Mayúsculas Selectivas:** Pon EN MAYÚSCULAS solo 1 palabra clave para dar un grito o golpe de voz.
-    - **Doble Salto de Línea:** Úsalo siempre para separar ideas y que la voz respire.
+    ESTILO:
+    - Muy andaluz, muy coloquial.
+    - **VARIEDAD:** No empieces siempre igual. Sorpréndeme.
+    - Frases cortas y con ritmo.
 
-    DATOS DE LA PELÍCULA:
+    DATOS:
     - Título: {sel.get("titulo")}
-    - Año: {sel.get("año", current_year)}
-    - Sinopsis base: "{sel.get("sinopsis")}"
+    - Sinopsis: "{sel.get("sinopsis")}"
 
-    OUTPUT: Solo el texto del guion. Asegúrate de llegar al mínimo de {min_words} palabras describiendo bien las penas del protagonista.
+    OUTPUT: Solo texto del guion.
     """
-    
-    # Log aprox tokens en prompt (rough estimate)
-    prompt_tokens = len(initial_prompt.split()) * 1.3  # Aprox
-    logging.info(f"Longitud prompt aprox: {prompt_tokens} tokens")
     
     attempts = []
     for attempt in range(max_retries):
         try:
             model_instance = genai.GenerativeModel(model)
-            # Config con params para evitar loops/reps
             response = model_instance.generate_content(
                 initial_prompt,
-                generation_config=GenerationConfig(
-                    max_output_tokens=2048,  # Aumentado
-                    temperature=0.7,  # Bajo para consistencia
-                    top_p=0.8,
-                    top_k=40,
-                    stop_sequences=["###"]  # Fuerza fin
-                ),
-                safety_settings={
-                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH, # Tu cambio
-                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                }
+                generation_config=GenerationConfig(max_output_tokens=2048, temperature=0.9, top_p=0.95), # Temp alta para creatividad
+                safety_settings={HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE}
             )
             
-            # Logs detallados
-            logging.info(f"Response type: {type(response)}")
-            logging.info(f"Has candidates: {hasattr(response, 'candidates') and bool(response.candidates)}")
-            
             generated_text = ""
-            if response.candidates and len(response.candidates) > 0:
-                candidate = response.candidates[0]
-                finish_reason = candidate.finish_reason.name if hasattr(candidate, 'finish_reason') else 'UNKNOWN'
-                logging.info(f"Finish reason: {finish_reason}")
-                
-                if candidate.content and candidate.content.parts:
-                    num_parts = len(candidate.content.parts)
-                    logging.info(f"Número de parts: {num_parts}")
-                    raw_text = candidate.content.parts[0].text if candidate.content.parts[0].text else ""
-                    # Limpieza: Remover reps de espacios y strip
-                    generated_text = re.sub(r'\s+', ' ', raw_text).strip()
-                    logging.info(f"Texto raw (primeros 100 chars): {raw_text[:100]}...")
-                    if generated_text:
-                        logging.info(f"Texto limpio: {generated_text}")
-                    else:
-                        logging.warning("Texto limpio vacío (posible loop de espacios)")
-                else:
-                    logging.warning(f"Sin parts en content (finish_reason: {finish_reason})")
-                
-                # Log usage si disponible
-                if hasattr(response, 'usage_metadata'):
-                    logging.info(f"Prompt tokens: {response.usage_metadata.prompt_token_count}, Output tokens: {response.usage_metadata.candidates_token_count}")
-                
-                # Log safety ratings
-                if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
-                    ratings_str = ', '.join([f"{r.category.name}: {r.probability.name}" for r in candidate.safety_ratings])
-                    logging.info(f"Safety ratings: {ratings_str}")
-                
-                if finish_reason == 'SAFETY':
-                    ratings_str = ', '.join([f"{r.category.name}: {r.probability.name}" for r in candidate.safety_ratings]) if candidate.safety_ratings else "No ratings"
-                    raise ValueError(f"Bloqueado por SAFETY (ratings: {ratings_str})")
-                elif finish_reason == 'MAX_TOKENS':
-                    logging.warning(f"Generación truncada por MAX_TOKENS.")
-                    if not generated_text.strip():
-                        logging.warning("Pero sin texto sustancial (suspect: loop de tokens repetidos).")
-            else:
-                raise ValueError("No hay candidates en la respuesta.")
+            if response.candidates and response.candidates[0].content.parts:
+                generated_text = re.sub(r'\s+', ' ', response.candidates[0].content.parts[0].text).strip()
             
-            if not generated_text.strip():
-                raise ValueError("Texto generado vacío después de limpieza.")
+            if not generated_text: raise ValueError("Texto vacío.")
             
             word_count = count_words(generated_text)
             attempts.append((generated_text, word_count))
@@ -172,35 +177,11 @@ def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=60, min
             if min_words <= word_count <= max_words:
                 logging.info(f"Narración generada con éxito ({word_count} palabras).")
                 return generated_text
-            else:
-                logging.warning(f"Intento {attempt + 1}: Texto tiene {word_count} palabras (fuera de {min_words}-{max_words}). Reintentando...")
         except Exception as e:
-            logging.warning(f"Error en intento {attempt + 1}: {e}. Reintentando...")
-    
-    # Fallback: Si todos fallan, prueba prompt simplificado
-    if not attempts:
-        logging.warning("Todos intentos fallaron. Probando prompt simplificado.")
-        sinopsis = sel.get("sinopsis", "")
-        truncated_sinopsis = sinopsis[:500] + "..." if sinopsis else ""
-        simple_prompt = f"Genera un guion gamberro, coloquial e irónico de {min_words}-{max_words} palabras para la película '{sel.get('titulo', '')}': {truncated_sinopsis}"
-        try:
-            model_instance = genai.GenerativeModel(model)
-            response = model_instance.generate_content(simple_prompt, generation_config=GenerationConfig(max_output_tokens=512, temperature=0.1))
-            if response.text:
-                generated_text = response.text.strip()
-                word_count = count_words(generated_text)
-                if min_words <= word_count <= max_words + 10:  # Tolerancia
-                    logging.info(f"Narración fallback OK ({word_count} palabras).")
-                    return generated_text
-        except Exception as e:
-            logging.error(f"Fallback falló: {e}")
+            logging.warning(f"Reintento {attempt+1}: {e}")
     
     if attempts:
-        best_attempt = min(attempts, key=lambda x: abs(x[1] - (min_words + max_words) / 2))
-        logging.info(f"Usando narración más cercana: {best_attempt[1]} palabras.")
-        return best_attempt[0]
-    
-    logging.error(f"Falló generar narración después de {max_retries} intentos.")
+        return min(attempts, key=lambda x: abs(x[1] - (min_words + max_words) / 2))[0]
     return None
 
 def _get_tmp_voice_path(tmdb_id: str, slug: str, tmpdir: Path) -> Path:
@@ -219,66 +200,37 @@ def _get_elevenlabs_api_key(CONFIG_DIR: Path) -> str | None:
 def _synthesize_elevenlabs_with_pauses(text: str, tmpdir: Path, tmdb_id: str, slug: str, CONFIG_DIR: Path) -> Path | None:
     try:
         api_key = _get_elevenlabs_api_key(CONFIG_DIR)
-        if not api_key:
-            raise ValueError("No se encontró clave API de ElevenLabs")
+        if not api_key: raise ValueError("No API Key")
         
         client = ElevenLabs(api_key=api_key)
         
-        text_to_send = text
-        
-        # Generar audio con ElevenLabs (método correcto)
-        SPEED_FACTOR = 1.00
-        VOICE_ID = "2VUqK4PEdMj16L6xTN4J"  # Voz andaluza expresiva
+        # Audio Stream
         audio_stream = client.text_to_speech.convert(
-            voice_id=VOICE_ID,
-            text=text_to_send,
-            model_id="eleven_multilingual_v2",  # Soporta SSML y español
-            voice_settings={
-                "stability": 0.45,      # <-- CAMBIO: 0.40 es el Sweet Spot para expresividad controlada
-                "style": 0.60,          # <-- CAMBIO: 0.70 para acentuar la actuación andaluza
-                "similarity_boost": 0.75,
-                "use_speaker_boost": True
-            }
+            voice_id="2VUqK4PEdMj16L6xTN4J",
+            text=text,
+            model_id="eleven_multilingual_v2",
+            voice_settings={"stability": 0.45, "style": 0.65, "similarity_boost": 0.75, "use_speaker_boost": True}
         )
 
-        # Guardar el stream en temp MP3
         temp_path = tmpdir / f"{tmdb_id}_{slug}_temp.mp3"
         with open(temp_path, "wb") as f:
-            for chunk in audio_stream:
-                f.write(chunk)
+            for chunk in audio_stream: f.write(chunk)
 
-        # Verificar que se generó el archivo
-        if not temp_path.exists() or temp_path.stat().st_size == 0:
-            raise IOError("ElevenLabs no generó el archivo de audio o está vacío.")
+        if not temp_path.exists() or temp_path.stat().st_size == 0: raise IOError("ElevenLabs failed")
         
-        logging.info(f"Audio generado con ElevenLabs (tamaño: {temp_path.stat().st_size} bytes)")
-
-        # Post-procesar con FFmpeg para acelerar (corregido: usa temp_path)
         final_wav_path = _get_tmp_voice_path(tmdb_id, slug, tmpdir)
-        VOLUME_FACTOR = 1.0  # Ajusta aquí: 1.0 = normal, 1.5 = +50%, 2.0 = doble
-        ffmpeg_cmd = [
-            'ffmpeg', '-y', '-i', str(temp_path),  # <-- Corregido: temp_path
-            '-filter:a', f'atempo={SPEED_FACTOR},volume={VOLUME_FACTOR}',
-            '-ar', '44100', '-ac', '2', str(final_wav_path)
-        ]
-        subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
         
-        # Limpiar temp (corregido: usa temp_path)
+        # FFmpeg: Speed 1.1x
+        subprocess.run([
+            'ffmpeg', '-y', '-i', str(temp_path),
+            '-filter:a', 'atempo=1.10,volume=1.0',
+            '-ar', '44100', '-ac', '2', str(final_wav_path)
+        ], check=True, capture_output=True, text=True)
         temp_path.unlink()
         
-        # Log duración
-        test_clip = AudioFileClip(str(final_wav_path))
-        logging.info(f"Audio sintetizado con pausas: {final_wav_path} (duración: {test_clip.duration:.2f}s)")
-        test_clip.close()
-        
         return final_wav_path
-    except subprocess.CalledProcessError as e:
-        logging.error(f"FFmpeg falló al acelerar el audio. Asegúrate de que FFmpeg está instalado y en el PATH: {e.stderr}")
-        if 'temp_path' in locals() and temp_path.exists():
-            temp_path.unlink()
-        return None
     except Exception as e:
-        logging.error(f"Error en la síntesis con ElevenLabs/FFmpeg: {e}", exc_info=True)
+        logging.error(f"Error Audio: {e}")
         return None
     
 def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, CONFIG_DIR: Path) -> tuple[str | None, Path | None]:
@@ -289,43 +241,31 @@ def generate_narration(sel: dict, tmdb_id: str, slug: str, tmpdir: Path, CONFIG_
             GOOGLE_API_KEY = f.read().strip()
         genai.configure(api_key=GOOGLE_API_KEY)
     except Exception:
-        logging.error("Fallo al cargar la clave API de Gemini en generate_narration.")
         return None, None
         
     narracion = _generate_narration_with_ai(sel, model=GEMINI_MODEL)
+    if not narracion: raise ValueError("Fallo guion")
     
-    # --- CAMBIO: Si no hay narración, lanzamos error y abortamos ---
-    if not narracion:
-        logging.error("🛑 CRÍTICO: Gemini no generó el guion (posible bloqueo de seguridad).")
-        logging.error("🛑 Abortando para no crear un vídeo mudo.")
-        # Esto detendrá el flujo actual y saltará al 'except' de publish.py (si lo pusiste)
-        # o detendrá el script completamente.
-        raise ValueError("Abortado: Fallo en generación de guion.")
-    # ---------------------------------------------------------------
-    
-    logging.info(f"Narración generada completa: {narracion}")
-    
-    # Si llegamos aquí, ES SEGURO que hay texto
+    logging.info(f"Narración: {narracion}")
     voice_path = _synthesize_elevenlabs_with_pauses(narracion, tmpdir, tmdb_id, slug, CONFIG_DIR)
     
-    if voice_path and voice_path.exists():
-        return narracion, voice_path
-    
-    # Si falló ElevenLabs pero había texto:
-    logging.error("🛑 Falló la síntesis de voz en ElevenLabs.")
+    if voice_path and voice_path.exists(): return narracion, voice_path
     return None, None
 
 def main() -> tuple[str | None, Path | None] | None:
     ROOT = Path(__file__).resolve().parents[1]
-    STATE = ROOT / "output" / "state"
+    SEL_FILE = ROOT / "output" / "state" / "next_release.json"
     CONFIG_DIR = ROOT / "config"
 
-    SEL_FILE = STATE / "next_release.json"
-    if not SEL_FILE.exists():
-        logging.error("Falta next_release.json.")
-        return None
-
+    if not SEL_FILE.exists(): return None
     sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
+    
+    # Save Hype Metrics
+    hype_metrics = calculate_hype_metrics(sel, save_to_history=True)
+    sel["hype_score"] = hype_metrics["score"]
+    sel["hype_category"] = hype_metrics["category"]
+    SEL_FILE.write_text(json.dumps(sel, indent=4, ensure_ascii=False), encoding="utf-8")
+
     tmdb_id = str(sel.get("tmdb_id", "unknown"))
     title = sel.get("titulo") or ""
     slug = slugify(title)
@@ -337,10 +277,9 @@ def main() -> tuple[str | None, Path | None] | None:
         if voice_path_temp:
             final_voice_path = NARRATION_DIR  / voice_path_temp.name
             shutil.copy2(voice_path_temp, final_voice_path)
-            logging.info(f"Proceso de narración finalizado. Audio copiado a: {final_voice_path}")
+            logging.info(f"Audio listo: {final_voice_path}")
             return narracion, final_voice_path
         else:
-            logging.error("El proceso de narración falló.")
             return None, None
 
 if __name__ == "__main__":

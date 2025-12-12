@@ -16,9 +16,6 @@ CONFIG_DIR = ROOT / "config"
 STATE_DIR = ROOT / "output" / "state"
 PUBLISHED_FILE = STATE_DIR / "published.json"
 
-# --- Configuración del Logging (hereda del caller) ---
-# No basicConfig aquí, usa el del script principal
-
 # --- Configuración de APIs y Constantes ---
 def load_config():
     """Carga keys de config. Retorna dict o None si falla."""
@@ -94,7 +91,7 @@ def mark_published(tmdb_id: int, trailer_url: str, title: str):
         "timestamp": timestamp,
         "trailer_url": trailer_url
     }
-    if new_entry not in state["published_ids"]:
+    if not any(pub.get("id") == tmdb_id for pub in state["published_ids"]):
         state["published_ids"].append(new_entry)
         _save_state(state)
         logging.info(f"✅ Película marcada como publicada: {title} (ID: {tmdb_id})")
@@ -153,6 +150,12 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
 
         sinopsis = data.get("overview", "")
 
+        # --- EXTRACCIÓN DE ACTORES (NUEVO) ---
+        cast_data = data.get("credits", {}).get("cast", [])
+        # Cogemos los 3 primeros nombres para el prompt de Gemini
+        top_actors = [actor["name"] for actor in cast_data[:3]]
+        # -------------------------------------
+
         posters = [f"{IMG_BASE_URL}/{POSTER_SIZE}{p['file_path']}" for p in data.get("images", {}).get("posters", [])]
         poster_principal = posters[0] if posters else None
         if not poster_principal:
@@ -161,18 +164,13 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
 
         generos = [g["name"] for g in data.get("genres", [])]
         
-        # Establece la fecha global como fallback inicial, asegurando formato YYYY-MM-DD
+        # Lógica de Fechas
         fecha_estreno = data.get("release_date", "").split("T")[0]
-        
-        # Define la prioridad de búsqueda: primero España, luego EEUU
         country_priority = ["ES", "US"]
-        # Define la prioridad de tipo de estreno: cine > limitado > premiere
         type_priority = [3, 2, 1]
-        
         all_release_results = data.get("release_dates", {}).get("results", [])
         found_priority_date = False
 
-        # Itera sobre los países en orden de prioridad
         for country_code in country_priority:
             country_releases = []
             for rel in all_release_results:
@@ -180,28 +178,18 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
                     country_releases = rel.get("release_dates", [])
                     break
             
-            # Si se encuentran fechas para el país, se buscan por tipo
             if country_releases:
                 for type_code in type_priority:
                     for rd in country_releases:
                         if rd.get("type") == type_code and rd.get("release_date"):
                             fecha_estreno = rd["release_date"].split("T")[0]
                             found_priority_date = True
-                            break  # Tipo encontrado, salir del bucle de fechas
-                    if found_priority_date:
-                        break  # Tipo encontrado, salir del bucle de tipos
-            
-            if found_priority_date:
-                # La mejor fecha posible ha sido encontrada, detener la búsqueda
-                logging.info(f" ✓ Fecha de estreno encontrada para '{data.get('title')}' en {country_code}: {fecha_estreno}")
-                break
+                            break
+                    if found_priority_date: break
+            if found_priority_date: break
 
-        # --- INICIO DEL CAMBIO: Lógica de Plataformas con Fallback a US ---
-        
-        # Obtenemos los proveedores para TODOS los países disponibles en la respuesta
+        # Lógica de Plataformas
         all_providers = data.get("watch/providers", {}).get("results", {})
-        
-        # Extraemos específicamente los de España y EE.UU.
         es_providers = all_providers.get("ES", {})
         us_providers = all_providers.get("US", {})
         
@@ -209,12 +197,8 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         us_streaming = [p["provider_name"] for p in us_providers.get("flatrate", [])]
         
         final_streaming_list = []
-        
-        # Lógica de Prioridad:
-        # 1. Si hay información para España, se usa esa.
         if es_streaming:
             final_streaming_list = es_streaming
-        # 2. Si no, y hay para EE.UU., se usa la de EE.UU. advirtiéndolo.
         elif us_streaming:
             final_streaming_list = [f"{p} (US)" for p in us_streaming]
 
@@ -223,14 +207,13 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         }
         has_streaming = bool(platforms["streaming"])
 
-        # --- FIN DEL CAMBIO ---
-
         enriched_data = {
             "id": tmdb_id,
             "titulo": data["title"],
             "fecha_estreno": fecha_estreno,
             "generos": generos,
             "sinopsis": sinopsis,
+            "actors": top_actors,  # <--- GUARDADO AQUÍ
             "poster_principal": poster_principal,
             "has_poster": bool(poster_principal),
             "platforms": platforms,
@@ -244,64 +227,46 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         return None
     
 def get_synopsis_chain(title: str, year: int, tmdb_id: str) -> str:
-    """Obtiene datos fiables de TMDB y usa la IA para reescribirlos en una sinopsis de calidad en español."""
+    """Obtiene datos fiables de TMDB y usa la IA para reescribirlos."""
     logging.info(f"Generando sinopsis desde datos de TMDB para '{title}' (ID: {tmdb_id})...")
     try:
-        # 1. OBTENER DATOS FIABLES DIRECTAMENTE DE LA API DE TMDB (EN INGLÉS, SUELE SER MÁS COMPLETO)
         movie_data = api_get(f"/movie/{tmdb_id}", {"language": "en-US"})
         if not movie_data:
             logging.error(f"No se pudieron obtener datos de TMDB para el ID {tmdb_id}.")
             return ""
 
-        # 2. CONSTRUIR LA "FICHA TÉCNICA" CON DATOS VERIFICADOS
         tmdb_overview = movie_data.get('overview', '')
         tmdb_tagline = movie_data.get('tagline', '')
         genres = [g['name'] for g in movie_data.get('genres', [])]
 
-        if not tmdb_overview:
-            logging.warning(f"La sinopsis de TMDB para '{title}' también está vacía. La IA tendrá que improvisar.")
-        
         fact_sheet = f"Título Original: {movie_data.get('original_title')}\n"
         fact_sheet += f"Sinopsis de TMDB: {tmdb_overview}\n"
         fact_sheet += f"Tagline: {tmdb_tagline}\n"
         fact_sheet += f"Géneros: {', '.join(genres)}\n"
 
-        logging.info(f"Ficha técnica enviada a la IA:\n---\n{fact_sheet.strip()}\n---")
-
-        # 3. CREAR EL NUEVO PROMPT (DE REESCRITURA, NO DE BÚSQUEDA)
         prompt = f"""
-        Eres un guionista experto de cine. Tu tarea es escribir una sinopsis atractiva y concisa en español, 
-        basándote exclusivamente en la siguiente ficha técnica de una película.
-
+        Eres un guionista experto de cine. Tu tarea es escribir una sinopsis atractiva y concisa en español.
         **Ficha Técnica:**
         ---
         {fact_sheet}
         ---
-
         **Instrucciones:**
-        1.  **USA SOLO ESTOS DATOS:** No busques en internet ni uses información externa. Basa tu sinopsis únicamente en la ficha técnica proporcionada.
-        2.  **LÓGICA:** Si la "Sinopsis de TMDB" es buena, úsala como base principal. Si está vacía o es muy corta, crea la sinopsis a partir del título, el tagline y los géneros para inferir la trama.
-        3.  **IDIOMA Y TONO**: El resultado final debe estar en español, ser atractivo y sonar como una sinopsis de cine profesional.
-        4.  **LONGITUD**: El texto final debe tener entre 40 y 80 palabras.
-        5.  **FORMATO**: Responde ÚNICAMENTE con el texto de la sinopsis.
-
-        Genera la sinopsis en español ahora.
+        1. USA SOLO ESTOS DATOS.
+        2. Idioma: Español.
+        3. Longitud: 50-70 palabras.
+        4. Output: Solo el texto.
         """
 
-        # 4. LLAMAR A LA IA PARA LA REESCRITURA
         config = load_config()
         genai.configure(api_key=config["GEMINI_API_KEY"])
         model = genai.GenerativeModel(GEMINI_MODEL)
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            # ... (otras categorías)
-        }
+        safety_settings = {HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE}
         
         response = model.generate_content(prompt, safety_settings=safety_settings)
         final_synopsis = response.text.strip() if response.parts else ""
 
         if not final_synopsis:
-            logging.error(f"La IA no pudo generar una sinopsis a partir de los datos de TMDB para '{title}'.")
+            logging.error(f"La IA no pudo generar una sinopsis.")
             return ""
 
         logging.info(f"Sinopsis generada con IA (reescritura): {final_synopsis}")
