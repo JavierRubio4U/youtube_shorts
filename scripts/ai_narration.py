@@ -26,8 +26,24 @@ ASSETS_DIR = ROOT / "assets"
 NARRATION_DIR = ASSETS_DIR / "narration"
 NARRATION_DIR.mkdir(parents=True, exist_ok=True)
 HISTORY_FILE = ROOT / "output" / "state" / "hype_history.json"
+ROTATION_FILE = ROOT / "output" / "state" / "narration_rotation.txt"
 
 # --- Funciones ---
+
+def _load_rotation() -> int:
+    try:
+        if ROTATION_FILE.exists():
+            return int(ROTATION_FILE.read_text().strip()) % 4
+    except:
+        pass
+    return 0
+
+def _save_rotation(next_rotation: int):
+    try:
+        ROTATION_FILE.write_text(str(next_rotation % 4), encoding="utf-8")
+    except:
+        pass
+
 def count_words(text: str) -> int:
     return len(re.findall(r'\b\w+\b', text))
 
@@ -112,6 +128,51 @@ def calculate_hype_metrics(sel: dict, save_to_history: bool = True) -> dict:
 
 def _generate_narration_with_ai(sel: dict, model=GEMINI_MODEL, max_words=60, min_words=45, max_retries=5) -> str | None:
     logging.info(f"Usando modelo Gemini: {model}")
+
+    # --- LÓGICA DE ROTACIÓN (NUEVO) ---
+    current_rotation = _load_rotation()
+    _save_rotation(current_rotation + 1) # Guarda la siguiente rotación
+    logging.info(f"🔄 Rotación de Tema: {current_rotation}")
+
+    # Extracción de datos
+    cast_list = sel.get("cast") or sel.get("actors") or []
+    main_actor = cast_list[0] if isinstance(cast_list, list) and len(cast_list) > 0 else "el protagonista"
+    genres = sel.get("generos", ["un género cualquiera"])[0]
+    platform_data = sel.get("ia_platform_from_title", "Cine") # Ojo: Este dato viene de find.py
+    release_date = sel.get("fecha_estreno", "Pronto")
+
+    # Definición de la instrucción para el paso 1
+    if current_rotation == 0:
+        # Foco en el Actor (como el actual)
+        if main_actor != "el protagonista":
+            step1_instruction = f"""1. **El Protagonista:** Menciona a **{main_actor}**. 
+            Usa tu base de datos de cine para hacer una referencia ácida o gamberra a su pasado (algún papel icónico, algún escándalo, o si siempre hace lo mismo).
+            ¡Sé creativa! No uses siempre las mismas fórmulas."""
+        else:
+            # Caso "Actor Desconocido" (Fallback del actual)
+            step1_instruction = "1. **El Protagonista:** No sabemos el nombre. Búrlate de que han cogido a uno de la calle o que es un 'héroe marca blanca'. Improvisa el insulto cariñoso."
+
+    elif current_rotation == 1:
+        # Foco en el Género
+        step1_instruction = f"""1. **El Género:** Menciona que es una película de **{genres}**. 
+        Búrlate de forma sarcástica de los clichés de ese género (ej: si es acción: siempre hay explosiones; si es drama: todos lloran). 
+        ¡Sé exagerada!"""
+        
+    elif current_rotation == 2:
+        # Foco en la Plataforma
+        platform_name = platform_data if platform_data != "Cine" else "el cine"
+        platform_instruction = "la comodidad de tu casa con palomitas de microondas" if platform_data != "Cine" else "una butaca incómoda"
+        step1_instruction = f"""1. **La Plataforma:** Menciona que se estrena en **{platform_name}**. 
+        Haz un comentario gracioso sobre lo que te vas a poner/hacer para verla allí (ej: si es Netflix: "me pongo el pijama roto"; si es Cine: "me llevo el tupper"). 
+        ¡Sé pícara!"""
+
+    elif current_rotation == 3:
+        # Foco en la Fecha de Estreno
+        step1_instruction = f"""1. **La Fecha:** Menciona que la peli llega el **{release_date}**. 
+        Haz una broma sobre el tiempo que falta (o no falta) para el estreno, comparándolo con algo absurdo que tienes que hacer (ej: "tengo que tejer un tapiz" o "me da tiempo a aprender chino").
+        ¡Sé surrealista!"""
+
+    logging.info(f"Instrucción Paso 1: {step1_instruction[:100]}...") # Muestra un fragmento
     
     # --- Extracción Actor Principal ---
     cast_list = sel.get("cast") or sel.get("actors") or []

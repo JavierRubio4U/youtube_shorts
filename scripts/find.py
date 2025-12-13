@@ -85,7 +85,7 @@ def find_and_select_next():
         
         all_items = []
         next_page_token = None
-        num_pages_to_fetch = 2 
+        num_pages_to_fetch = 3 # cuantas paginas de 50 vamos a añadir... actualment 150
 
         logging.info(f"Realizando hasta {num_pages_to_fetch} búsquedas paginadas para obtener más resultados...")
 
