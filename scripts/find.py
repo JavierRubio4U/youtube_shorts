@@ -18,7 +18,8 @@ if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 from movie_utils import (
     _load_state, is_published, api_get, get_synopsis_chain, enrich_movie_basic,
-    load_config
+    load_config,
+    get_deep_research_data # <-- NUEVO: Importamos la función de Deep Research
 )
 
 # --- Configuración de Paths ---
@@ -85,7 +86,7 @@ def find_and_select_next():
         
         all_items = []
         next_page_token = None
-        num_pages_to_fetch = 3 # cuantas paginas de 50 vamos a añadir... actualment 150
+        num_pages_to_fetch = 4 # cuantas paginas de 50 vamos
 
         logging.info(f"Realizando hasta {num_pages_to_fetch} búsquedas paginadas para obtener más resultados...")
 
@@ -154,8 +155,8 @@ def find_and_select_next():
     logging.info("")
     logging.info(f"=== 🧹 PASO 2: Pre-filtro (Progreso: 2/6) ===")
     filtered_videos = [v for v in videos if 'official' in v['title'].lower() and 'trailer' in v['title'].lower()]
-    if len(filtered_videos) > 50:
-        filtered_videos = filtered_videos[:50]
+    #if len(filtered_videos) > 50:
+    #    filtered_videos = filtered_videos[:50]
     discarded = len(videos) - len(filtered_videos)
     logging.info(f"Filtrado 'official trailer': {len(filtered_videos)} válidos (de {len(videos)}).")
     
@@ -310,11 +311,40 @@ Si no es válido, ignóralo.
     enriched.sort(key=lambda x: x['views'], reverse=True)
     selected = enriched[0]
 
-    # Sinopsis
-    if selected.get('needs_web'):
-        logging.info(f"🕵️ Sinopsis de TMDB vacía. Buscando con IA para '{selected['titulo']}'...")
+    # --- CAMBIO: Usar Deep Research para enriquecer datos y sinopsis ---
+    deep_data = None
+    # Usar el primer actor de la lista si existe, si no, usar el título para la referencia
+    main_actor = selected.get('actors', [None])[0] or selected['titulo'] 
+    
+    # Solo ejecutar si TMDB no tiene sinopsis o si necesitamos la referencia del actor/director
+    if selected.get('needs_web') or not selected.get('actors'): 
+        logging.info(f"🕵️ Ejecutando Deep Research para '{selected['titulo']}'...")
+        deep_data = get_deep_research_data(
+            selected['titulo'], 
+            selected['año'], 
+            main_actor, 
+            selected['id']
+        )
+    
+    if deep_data:
+        logging.info("✅ Usando datos de Deep Research.")
+        # Reemplazar sinopsis y añadir nuevos datos al seleccionado
+        if deep_data.get('synopsis'):
+            selected['sinopsis'] = deep_data['synopsis']
+        # Usamos la plataforma verificada por Deep Research si la encuentra
+        if deep_data.get('platform') and deep_data['platform'] != "Cine":
+            selected['ia_platform_from_title'] = deep_data['platform'] 
+        
+        # Añadimos la referencia ácida y el director para el payload final
+        selected['actor_reference'] = deep_data.get('actor_reference')
+        selected['director'] = deep_data.get('director')
+    
+    elif selected.get('needs_web'):
+        logging.warning(f"⚠️ Deep Research falló o expiró. Usando Fallback de sinopsis para '{selected['titulo']}'...")
+        # Llama a la función de fallback (que sigue usando el modelo estándar)
         gemini_synopsis = get_synopsis_chain(selected['titulo'], selected['año'], selected['id'])   
         if gemini_synopsis: selected['sinopsis'] = gemini_synopsis
+    # --- FIN CAMBIO DEEP RESEARCH ---
 
     payload = {
         "tmdb_id": selected["id"],
@@ -328,10 +358,12 @@ Si no es válido, ignóralo.
         "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z",
         "generos": selected["generos"],
         
-        "cast": selected.get("actors", []), # --- NUEVO: GUARDAR ACTORES ---
+        "cast": selected.get("actors", []), 
+        "director": selected.get("director"), # <-- NUEVO: DIRECTOR
+        "actor_reference": selected.get("actor_reference"), # <-- NUEVO: REFERENCIA ÁCIDA
         
         "views": selected.get("views", 0),
-        "upload_date": selected.get("upload_date") # --- NUEVO: GUARDAR FECHA SUBIDA ---
+        "upload_date": selected.get("upload_date")
     }
 
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
