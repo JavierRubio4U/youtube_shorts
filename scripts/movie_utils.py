@@ -4,12 +4,10 @@ import json
 import requests
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from operator import itemgetter
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from gemini_config import GEMINI_MODEL
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
-import time # <-- NUEVO: Para el polling asíncrono
+import time
 
 # --- Configuración de Paths (global para utils) ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +33,7 @@ IMG_BASE_URL = "https://image.tmdb.org/t/p"
 POSTER_SIZE = "w500"
 BACKDROP_SIZE = "w1280"
 
-# --- FUNCIONES DE GESTIÓN DE ESTADO (SIN CAMBIOS) ---
+# --- FUNCIONES DE GESTIÓN DE ESTADO ---
 def _load_state():
     if not PUBLISHED_FILE.exists():
         return {"published_ids": []}
@@ -67,10 +65,7 @@ def _load_state():
                 pub_time = datetime.fromisoformat(pub["timestamp"].replace("Z", "+00:00"))
                 if pub_time >= one_month_ago:
                     filtered_published.append(pub)
-                else:
-                    logging.info(f"Limpiando entrada antigua: {pub.get('title', 'N/A')} ({pub.get('id', 'N/A')})")
-            except (ValueError, KeyError) as e:
-                logging.warning(f"Entrada inválida en published_ids: {pub}, error: {e}. Omitiendo.")
+            except (ValueError, KeyError):
                 continue
         state["published_ids"] = filtered_published
     return state
@@ -78,12 +73,10 @@ def _load_state():
 def _save_state(state):
     try:
         PUBLISHED_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-        logging.info(f"Estado guardado en {PUBLISHED_FILE}")
     except Exception as e:
         logging.error(f"Error al guardar estado: {e}")
 
 def mark_published(tmdb_id: int, trailer_url: str, title: str):
-    """Marca una película como publicada en el estado."""
     state = _load_state()
     timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     new_entry = {
@@ -100,11 +93,9 @@ def mark_published(tmdb_id: int, trailer_url: str, title: str):
         logging.warning(f"Ya publicada: {title} (ID: {tmdb_id})")
 
 def is_published(tmdb_id: int) -> bool:
-    """Verifica si un TMDB ID ya fue publicado."""
     state = _load_state()
     return any(pub.get("id") == tmdb_id for pub in state["published_ids"])
 
-# --- API HELPERS (SIN CAMBIOS) ---
 def api_get(path, params=None):
     config = load_config()
     if not config:
@@ -116,27 +107,7 @@ def api_get(path, params=None):
     r.raise_for_status()
     return r.json()
 
-# --- WEB FALLBACK (SIN CAMBIOS) ---
-def get_synopsis_from_web(title: str, year: int) -> str:
-    """Si no hay sinopsis en TMDB, busca en web."""
-    try:
-        query = f"sinopsis {title} película {year}"
-        search_params = {"q": query, "num": 3}
-        r = requests.get("https://www.google.com/search", params=search_params, timeout=10)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        snippet = soup.find("div", class_="BNeawe s3v9rd AP7Wnd")
-        snippet_text = snippet.text if snippet else ""
-        if len(snippet_text) > 200:
-            snippet_text = snippet_text[:197] + "..."
-        logging.info(f"Sinopsis de web para '{title}': {snippet_text[:100]}...")
-        return snippet_text if snippet_text else ""
-    except Exception as e:
-        logging.warning(f"Error buscando sinopsis para '{title}': {e}")
-        return ""
-    
 def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: str = None):
-    """Enrich básico: TMDB sin web fallback (rápido para ranking). (SIN CAMBIOS)"""
-    # ... (El cuerpo de la función enrich_movie_basic sigue igual) ...
     try:
         data = api_get(
             f"/movie/{tmdb_id}",
@@ -147,50 +118,28 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
             }
         )
         if not data or not data.get("title"):
-            logging.warning(f"Enrich básico falló: Sin título para ID {tmdb_id}")
             return None
 
         sinopsis = data.get("overview", "")
-
-        # --- EXTRACCIÓN DE ACTORES (NUEVO) ---
         cast_data = data.get("credits", {}).get("cast", [])
-        # Cogemos los 3 primeros nombres para el prompt de Gemini
         top_actors = [actor["name"] for actor in cast_data[:3]]
-        # -------------------------------------
 
         posters = [f"{IMG_BASE_URL}/{POSTER_SIZE}{p['file_path']}" for p in data.get("images", {}).get("posters", [])]
         poster_principal = posters[0] if posters else None
         if not poster_principal:
-            logging.warning(f"Sin póster básico para '{data.get('title')}' (ID: {tmdb_id})")
             return None
 
         generos = [g["name"] for g in data.get("genres", [])]
         
-        # Lógica de Fechas
         fecha_estreno = data.get("release_date", "").split("T")[0]
-        country_priority = ["ES", "US"]
-        type_priority = [3, 2, 1]
         all_release_results = data.get("release_dates", {}).get("results", [])
-        found_priority_date = False
+        for rel in all_release_results:
+             if rel.get("iso_3166_1") == "ES":
+                 for rd in rel.get("release_dates", []):
+                     if rd.get("type") == 3 and rd.get("release_date"):
+                         fecha_estreno = rd["release_date"].split("T")[0]
+                         break
 
-        for country_code in country_priority:
-            country_releases = []
-            for rel in all_release_results:
-                if rel.get("iso_3166_1") == country_code:
-                    country_releases = rel.get("release_dates", [])
-                    break
-            
-            if country_releases:
-                for type_code in type_priority:
-                    for rd in country_releases:
-                        if rd.get("type") == type_code and rd.get("release_date"):
-                            fecha_estreno = rd["release_date"].split("T")[0]
-                            found_priority_date = True
-                            break
-                    if found_priority_date: break
-            if found_priority_date: break
-
-        # Lógica de Plataformas
         all_providers = data.get("watch/providers", {}).get("results", {})
         es_providers = all_providers.get("ES", {})
         us_providers = all_providers.get("US", {})
@@ -198,163 +147,105 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         es_streaming = [p["provider_name"] for p in es_providers.get("flatrate", [])]
         us_streaming = [p["provider_name"] for p in us_providers.get("flatrate", [])]
         
-        final_streaming_list = []
-        if es_streaming:
-            final_streaming_list = es_streaming
-        elif us_streaming:
-            final_streaming_list = [f"{p} (US)" for p in us_streaming]
-
-        platforms = {
-            "streaming": final_streaming_list
-        }
-        has_streaming = bool(platforms["streaming"])
+        final_streaming_list = es_streaming if es_streaming else [f"{p} (US)" for p in us_streaming]
+        platforms = {"streaming": final_streaming_list}
 
         enriched_data = {
-            "id": tmdb_id,
+            "tmdb_id": tmdb_id, # Usamos tmdb_id
             "titulo": data["title"],
             "fecha_estreno": fecha_estreno,
             "generos": generos,
             "sinopsis": sinopsis,
-            "actors": top_actors,  # <--- GUARDADO AQUÍ
+            "actors": top_actors,
             "poster_principal": poster_principal,
             "has_poster": bool(poster_principal),
             "platforms": platforms,
-            "has_streaming": has_streaming
+            "has_streaming": bool(final_streaming_list)
         }
         if trailer_url:
             enriched_data["trailer_url"] = trailer_url
         return enriched_data
     except Exception as e:
-        logging.error(f"Error enrich básico '{movie_name}' (ID: {tmdb_id}): {e}")
+        logging.error(f"Error enrich básico '{movie_name}': {e}")
         return None
     
-# --- CAMBIO: get_synopsis_chain ahora es un simple FALLBACK ---
 def get_synopsis_chain(title: str, year: int, tmdb_id: str) -> str:
-    """FALLBACK: Obtiene datos fiables de TMDB y usa la IA para reescribirlos."""
-    logging.warning(f"⚠️ Usando FALLBACK de sinopsis (TMDB + IA) para '{title}'...")
+    """FALLBACK simple."""
     try:
         movie_data = api_get(f"/movie/{tmdb_id}", {"language": "en-US"})
-        if not movie_data:
-            return ""
-
-        tmdb_overview = movie_data.get('overview', '')
-        tmdb_tagline = movie_data.get('tagline', '')
-        genres = [g['name'] for g in movie_data.get('genres', [])]
-
-        fact_sheet = f"Título Original: {movie_data.get('original_title')}\n"
-        fact_sheet += f"Sinopsis de TMDB: {tmdb_overview}\n"
-        fact_sheet += f"Tagline: {tmdb_tagline}\n"
-        fact_sheet += f"Géneros: {', '.join(genres)}\n"
-
-        prompt = f"""
-        Eres un guionista experto de cine. Tu tarea es escribir una sinopsis atractiva y concisa en español.
-        **Ficha Técnica:**
-        ---
-        {fact_sheet}
-        ---
-        **Instrucciones:**
-        1. USA SOLO ESTOS DATOS.
-        2. Idioma: Español.
-        3. Longitud: 50-70 palabras.
-        4. Output: Solo el texto.
-        """
-
+        if not movie_data: return ""
+        
+        prompt = f"Escribe una sinopsis corta (50 palabras) y gamberra en español para la película '{title}'. Trama: {movie_data.get('overview', '')}"
+        
         config = load_config()
         genai.configure(api_key=config["GEMINI_API_KEY"])
         model = genai.GenerativeModel(GEMINI_MODEL)
-        safety_settings = {HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE}
-        
-        response = model.generate_content(prompt, safety_settings=safety_settings)
-        final_synopsis = response.text.strip() if response.parts else ""
-
-        if not final_synopsis:
-            logging.error(f"La IA no pudo generar una sinopsis.")
-            return ""
-
-        logging.info(f"Sinopsis generada con IA (reescritura): {final_synopsis}")
-        return final_synopsis
-
-    except Exception as e:
-        logging.error(f"Error crítico en get_synopsis_chain para '{title}': {e}", exc_info=True)
+        response = model.generate_content(prompt)
+        return response.text.strip() if response.parts else ""
+    except Exception:
         return ""
 
-# --- NUEVA FUNCIÓN: Deep Research Agent ---
+# --- DEEP RESEARCH AGENT (STANDARD API) ---
 def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str) -> dict | None:
     """
-    Usa el Agente Deep Research (Asíncrono) para obtener datos enriquecidos y citados.
-    Retorna sinopsis, referencia de actor y plataforma.
+    Obtiene salseo y DECIDE cuál es el mejor ángulo de venta (Gancho) usando la API Estándar.
     """
-    logging.info(f"🧠 Iniciando Deep Research (asíncrono) para '{title}' (ID: {tmdb_id})...")
+    logging.info(f"🧠 Deep Research: Analizando estrategia editorial para '{title}'...")
     
     config = load_config()
-    if not config:
-        return None
+    if not config: return None
     
     try:
-        # Configurar cliente para Interactions API
-        client = genai.Client(api_key=config["GEMINI_API_KEY"])
+        genai.configure(api_key=config["GEMINI_API_KEY"])
+        model = genai.GenerativeModel(GEMINI_MODEL)
 
-        # Prompt complejo que pide los 4 elementos clave
         research_prompt = f"""
-        Realiza una investigación detallada y verificada de la película '{title}' ({year}).
-        Céntrate en obtener los siguientes datos, citando las fuentes web:
-        1. **Sinopsis Concisa y Gamberra:** Reescribe la trama en español (50-70 palabras), manteniendo un tono de 'chisme' o cotilleo.
-        2. **Referencia Ácida del Actor:** Busca un dato curioso, un papel icónico, o un escándalo reciente del actor '{main_actor}' que pueda ser usado como referencia ácida en un guion de comedia.
-        3. **Director:** Nombre del director/a principal.
-        4. **Plataforma ES:** Confirma la plataforma de estreno en España (Cine, Netflix, HBO, etc.).
+        Investiga la película '{title}' ({year}). 
+        Tu objetivo es decidir CÓMO venderla en un video corto de humor ácido/salseo.
         
-        El resultado debe ser un JSON limpio y usable, con las claves: 'synopsis', 'actor_reference', 'director', 'platform'.
+        1. **Curiosidad/Salseo:** Algo impactante (presupuesto, peleas, anécdotas, marketing loco).
+        2. **Actor Principal:** ({main_actor}) ¿Tiene trapos sucios, es una leyenda o un meme?
+        3. **Director:** ¿Es famoso o tiene un estilo raro?
+        
+        DECISIÓN FINAL: ¿Cuál es el gancho más fuerte para empezar el vídeo?
+        Elige UNO: 
+        - 'ACTOR' (Si el actor es lo más interesante).
+        - 'DIRECTOR' (Si es alguien de culto).
+        - 'CURIOSITY' (Si el dato de producción es lo más fuerte).
+        - 'PLOT' (Si la trama es tan absurda que se vende sola).
+
+        IMPORTANTE: Responde SÓLO con un JSON válido.
+        Formato JSON:
+        {{
+            "synopsis": "Sinopsis gamberra de la trama (máx 2 líneas)",
+            "actor_reference": "Dato corto ácido sobre el actor",
+            "director": "Nombre y estilo",
+            "movie_curiosity": "El dato impactante/salseo",
+            "hook_angle": "ACTOR" | "DIRECTOR" | "CURIOSITY" | "PLOT",
+            "platform": "Cine o plataforma streaming (estimada)"
+        }}
         """
         
-        # Iniciar la tarea en segundo plano
-        interaction = client.interactions.create(
-            agent="deep-research-pro-preview-12-2025",
-            input=research_prompt,
-            background=True
-        )
-        logging.info(f"   -> Tarea ID: {interaction.id}. Estado inicial: {interaction.status.name}")
-
-        # --- Polling (Sondeo) ---
-        max_wait_time = 180 # 3 minutos (configurable según la latencia real)
-        start_time = time.time()
+        # Llamada directa sin agentes beta
+        response = model.generate_content(research_prompt)
+        text = response.text.strip()
         
-        while interaction.status.name in ["PENDING", "PROCESSING"] and (time.time() - start_time) < max_wait_time:
-            time.sleep(10) # Esperar 10 segundos entre consultas
-            interaction = client.interactions.get(interaction.id)
-            logging.info(f"   -> Sondeando... {int(time.time() - start_time)}s. Estado: {interaction.status.name}")
-
-        if interaction.status.name == "COMPLETED":
-            # El agente Deep Research devuelve un informe citado.
-            # Usaremos un modelo estándar (limpiador) para extraer el JSON que necesitamos.
-            logging.info("   -> Investigación COMPLETA. Limpiando el resultado...")
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
             
-            cleaner_prompt = f"""
-            Eres un extractor de datos de IA. Tu única tarea es extraer los cuatro campos requeridos del informe de investigación citado a continuación.
-            Responde SÓLO con un objeto JSON válido con las claves: 'synopsis', 'actor_reference', 'director', 'platform'.
-            
-            Reporte de Deep Research:
-            ---
-            {interaction.result.text}
-            ---
-            """
-            
-            model_cleaner = genai.GenerativeModel(GEMINI_MODEL)
-            clean_response = model_cleaner.generate_content(cleaner_prompt)
-            
-            final_json_str = clean_response.text.strip().lstrip("```json").rstrip("```").strip()
-            
-            final_data = json.loads(final_json_str)
-            logging.info(f"✅ Deep Research procesado con éxito.")
-            return final_data
-            
-        elif interaction.status.name == "FAILED":
-            logging.error(f"❌ Tarea de Deep Research fallida: {interaction.error_message}")
-            return None
-        
-        else: # TIMEOUT
-            logging.error(f"⌛ Tarea de Deep Research excedió el tiempo límite ({max_wait_time}s).")
-            return None
+        final_json = json.loads(text)
+        return final_json
 
     except Exception as e:
-        logging.error(f"Error crítico en la llamada a Deep Research/Limpiador: {e}")
-        return None
+        logging.error(f"Error Deep Research (Standard): {e}")
+        # Fallback de seguridad
+        return {
+            "synopsis": "",
+            "actor_reference": "",
+            "director": "",
+            "movie_curiosity": "Se dice que es la película del año",
+            "hook_angle": "PLOT",
+            "platform": "Cine"
+        }
