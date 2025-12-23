@@ -1,13 +1,10 @@
 # scripts/ai_narration.py
 import json
-import re
-import subprocess
+import logging
 from pathlib import Path
 import google.generativeai as genai
-import logging
 import tempfile
-import requests
-import base64
+import requests  # Necesario para llamar a ElevenLabs
 from gemini_config import GEMINI_MODEL
 
 # --- Configuración ---
@@ -18,7 +15,11 @@ NARRATION_DIR = ROOT / "assets" / "narration"
 NARRATION_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_DIR = ROOT / "config"
 
-# --- GENERACIÓN INTELIGENTE ---
+# Configuración ElevenLabs
+ELEVEN_VOICE_ID = "2VUqK4PEdMj16L6xTN4J"  # La Andaluza
+ELEVEN_MODEL_ID = "eleven_multilingual_v2" # El mejor para español natural
+
+# --- GENERACIÓN DE GUION (GEMINI) ---
 def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_words=65) -> tuple[str, str] | None:
     
     # Datos
@@ -46,9 +47,9 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_w
         dato = curiosity if curiosity else "el rodaje fue un desastre"
         hook_instruction = f"¡Suelta la bomba! Empieza con este dato: **'{dato}'**. Tono de 'te cuento un secreto'."
 
-    # --- PROMPT MEJORADO (CON PREGUNTA FINAL) ---
+    # --- PROMPT MEJORADO ---
     prompt = f"""
-    Eres "La Sinóptica Gamberra". Crítica ácida. Voz: Español Neutro.
+    Eres "La Sinóptica Gamberra". Crítica ácida. Voz: Español de España con acento andaluz, con carácter.
     
     OBJETIVO: Guion de {min_words}-{max_words} palabras.
     ESTRUCTURA OBLIGATORIA (Separada por "|"):
@@ -60,7 +61,7 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_w
     PARTE 2: El Cotilleo (Trama: "{synopsis}").
        - OBLIGATORIO: Empieza con una **muletilla de enlace** (Ej: "Resulta que...", "El caso es que...").
        - Cuenta el conflicto principal rápido.
-       - OBLIGATORIO: **Termina con una PREGUNTA RETÓRICA o DESAFÍO** al espectador para que comenten (Ej: "¿Tú aguantarías?", "¿Genio o loco?").
+       - **Termina con una PREGUNTA RETÓRICA o DESAFÍO** al espectador para que comenten (No es necesario hacerlo siempre si ves que te pasas de palabras en la narracion).
     
     OUTPUT: Texto Gancho | Texto Cotilleo
     """
@@ -82,67 +83,78 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_w
         logging.error(f"Fallo Gemini: {e}")
         return None, None
 
-def _clean_text_for_xml(text):
-    return text.replace("&", "y").replace("<", "").replace(">", "").replace('"', "")
+def _clean_text_for_eleven(text):
+    """Limpia asteriscos de markdown que Gemini a veces pone."""
+    return text.replace("*", "").replace('"', "").strip()
 
-def _synthesize_google_ssml(hook: str, body: str, tmpdir: Path, tmdb_id: str) -> Path | None:
+# --- SÍNTESIS ELEVENLABS ---
+def _synthesize_elevenlabs(hook: str, body: str, tmdb_id: str) -> Path | None:
     try:
-        api_key_path = CONFIG_DIR / "google_api_key.txt"
-        if not api_key_path.exists(): return None
+        api_key_path = CONFIG_DIR / "elevenlabs_api_key.txt"
+        if not api_key_path.exists():
+            logging.error("❌ Falta el archivo elevenlabs_api_key.txt en /config")
+            return None
+            
         api_key = api_key_path.read_text(encoding="utf-8").strip()
 
-        safe_hook = _clean_text_for_xml(hook)
-        safe_body = _clean_text_for_xml(body)
+        # Limpieza simple
+        safe_hook = _clean_text_for_eleven(hook)
+        safe_body = _clean_text_for_eleven(body)
         
-        # --- SSML (Con Tono Confidencial y Pausa) ---
-        ssml_text = f"""
-        <speak>
-            <break time="200ms"/>
-            <p>
-                <s>{safe_hook}</s>
-                <break time="700ms"/>
-                <prosody pitch="-1.5st">
-                    <s>{safe_body}</s>
-                </prosody>
-            </p>
-        </speak>
-        """
+        # Unimos texto con una pausa natural (...) para que la IA respire
+        full_text = f"{safe_hook} ... {safe_body}"
 
-        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
-        payload = {
-            "input": {"ssml": ssml_text},
-            "voice": {"languageCode": "es-ES", "name": "es-ES-Neural2-D"},
-            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.0, "pitch": 0.0}
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}"
+        
+        headers = {
+            "xi-api-key": api_key,
+            "Content-Type": "application/json"
         }
 
-        response = requests.post(url, json=payload)
+        payload = {
+            "text": full_text,
+            "model_id": ELEVEN_MODEL_ID,
+            "voice_settings": {
+                "stability": 0.5,       # Equilibrado para que tenga emoción
+                "similarity_boost": 0.75,
+                "style": 0.5,           # Un poco de exageración (si el modelo v2 lo permite)
+                "use_speaker_boost": True
+            }
+        }
+
+        logging.info("🎙️ Enviando texto a ElevenLabs...")
+        response = requests.post(url, json=payload, headers=headers)
+
         if response.status_code == 200:
-            audio_content = response.json().get("audioContent")
-            raw_mp3 = tmpdir / f"{tmdb_id}_raw.mp3"
-            with open(raw_mp3, "wb") as f: f.write(base64.b64decode(audio_content))
+            final_wav = NARRATION_DIR / f"{tmdb_id}_narration.mp3" # Eleven devuelve MP3 por defecto
+            with open(final_wav, "wb") as f:
+                f.write(response.content)
             
-            final_wav = NARRATION_DIR / f"{tmdb_id}_narration.wav"
-            subprocess.run(['ffmpeg', '-y', '-i', str(raw_mp3), '-ac', '2', '-ar', '44100', str(final_wav)], 
-                           check=True, capture_output=True)
+            logging.info(f"✅ Audio generado con ElevenLabs: {final_wav}")
             return final_wav
-        return None
+        else:
+            logging.error(f"❌ Error ElevenLabs ({response.status_code}): {response.text}")
+            return None
+
     except Exception as e:
-        logging.error(f"Error Audio: {e}")
+        logging.error(f"Error Crítico Audio: {e}")
         return None
 
 def main():
     if not (STATE_DIR / "next_release.json").exists(): return None
     sel = json.loads((STATE_DIR / "next_release.json").read_text(encoding="utf-8"))
     
-    with tempfile.TemporaryDirectory() as tmpdir_str:
-        tmpdir = Path(tmpdir_str)
-        hook, body = _generate_narration_parts(sel)
-        if not hook: return None
-        
-        voice_path = _synthesize_google_ssml(hook, body, tmpdir, str(sel.get("tmdb_id")))
-        if voice_path:
-            logging.info(f"✅ Audio generado con Estrategia {sel.get('hook_angle', 'AUTO')}")
-            return f"{hook} {body}", voice_path
+    # Ya no necesitamos directorio temporal para decodificar base64, 
+    # pero mantenemos la estructura por si acaso.
+    hook, body = _generate_narration_parts(sel)
+    if not hook: return None
+    
+    # Llamamos a ElevenLabs
+    voice_path = _synthesize_elevenlabs(hook, body, str(sel.get("tmdb_id")))
+    
+    if voice_path:
+        return f"{hook} {body}", voice_path
+            
     return None, None
 
 if __name__ == "__main__":
