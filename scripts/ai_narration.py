@@ -19,7 +19,7 @@ NARRATION_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_DIR = ROOT / "config"
 
 # --- GENERACIÓN INTELIGENTE ---
-def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=45, max_words=60) -> tuple[str, str] | None:
+def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_words=65) -> tuple[str, str] | None:
     
     # Datos
     title = sel.get("titulo")
@@ -46,7 +46,7 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=45, max_w
         dato = curiosity if curiosity else "el rodaje fue un desastre"
         hook_instruction = f"¡Suelta la bomba! Empieza con este dato: **'{dato}'**. Tono de 'te cuento un secreto'."
 
-    # --- PROMPT MEJORADO (CON ENTRADILLA) ---
+    # --- PROMPT MEJORADO (CON PREGUNTA FINAL) ---
     prompt = f"""
     Eres "La Sinóptica Gamberra". Crítica ácida. Voz: Español Neutro.
     
@@ -58,9 +58,9 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=45, max_w
        - Impacto inmediato.
     
     PARTE 2: El Cotilleo (Trama: "{synopsis}").
-       - OBLIGATORIO: Empieza con una **muletilla de enlace natural** (Ej: "Resulta que...", "Total, que...", "El caso es que...", "Pues imagínate...").
-       - Cuenta el conflicto principal rápido y con "mala leche".
-       - NO te despidas.
+       - OBLIGATORIO: Empieza con una **muletilla de enlace** (Ej: "Resulta que...", "El caso es que...").
+       - Cuenta el conflicto principal rápido.
+       - OBLIGATORIO: **Termina con una PREGUNTA RETÓRICA o DESAFÍO** al espectador para que comenten (Ej: "¿Tú aguantarías?", "¿Genio o loco?").
     
     OUTPUT: Texto Gancho | Texto Cotilleo
     """
@@ -94,11 +94,7 @@ def _synthesize_google_ssml(hook: str, body: str, tmpdir: Path, tmdb_id: str) ->
         safe_hook = _clean_text_for_xml(hook)
         safe_body = _clean_text_for_xml(body)
         
-        # --- SSML MODIFICADO (TONO CONFIDENCIAL) ---
-        # 1. break 200ms: Silencio seguridad.
-        # 2. Gancho: Normal.
-        # 3. break 700ms: Pausa dramática.
-        # 4. Cuerpo: pitch="-1.5st" (Voz un poco más grave/íntima).
+        # --- SSML (Con Tono Confidencial y Pausa) ---
         ssml_text = f"""
         <speak>
             <break time="200ms"/>

@@ -71,7 +71,15 @@ Si ya tienes la película descargada (está en `next_release.json`) pero quieres
     ```powershell
     python scripts/build_short.py
     ```
+### F. Listar Modelos de IA Disponibles (`list_models.py`)
+Consulta a la API de Google para ver qué modelos de Gemini tienes activos y disponibles con tu clave actual. Útil si quieres actualizar la configuración a un modelo más nuevo o ligero.
 
+* **Comando:**
+    ```powershell
+    python test/list_models.py
+    ```
+* **Resultado:**
+    * Imprime en consola una lista de los modelos compatibles (ej: `gemini-1.5-flash`, `gemini-pro`) junto con sus IDs exactos para usar en el código.
 ---
 
 ## 📂 3. Archivos Clave y Configuración
