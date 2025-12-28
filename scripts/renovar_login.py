@@ -11,7 +11,6 @@ TOKEN_FILE = ROOT / "output" / "state" / "youtube_token.json"
 # Permisos necesarios (Subir videos y Buscar para find.py)
 SCOPES = [
     'https://www.googleapis.com/auth/youtube.upload',
-    'https://www.googleapis.com/auth/youtube.readonly',
     'https://www.googleapis.com/auth/youtube.force-ssl'
 ]
 
