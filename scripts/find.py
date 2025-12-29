@@ -15,7 +15,6 @@ import sys
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# Importamos las funciones NECESARIAS de movie_utils
 from movie_utils import (
     _load_state, is_published, api_get, get_synopsis_chain, enrich_movie_basic,
     load_config, get_deep_research_data
@@ -33,7 +32,7 @@ def find_and_select_next():
     config = load_config()
     if not config: return None
 
-    logging.info("🔎 INICIANDO BÚSQUEDA DE PELÍCULA...")
+    logging.info("🔎 INICIANDO BÚSQUEDA DE PELÍCULA (MODO HÍBRIDO + ANTI-BOLLYWOOD)...")
 
     # --- YouTube Service ---
     TOKEN_FILE = STATE_DIR / "youtube_token.json"
@@ -54,19 +53,41 @@ def find_and_select_next():
 
     # --- Paso 1: YouTube Search ---
     try:
-        query = "official movie trailer 2025 new this week"
+        queries = [
+            "official movie trailer 2025 new this week",
+            "netflix official movie trailer 2025",
+            "prime video official movie trailer 2025",
+            "disney plus official movie trailer 2025",
+            "max hbo official movie trailer 2025",
+            "apple tv official movie trailer 2025"
+        ]
+        
         start_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        logging.info(f"📡 Buscando estrenos y novedades streaming desde {start_date}...")
         
         all_items = []
-        next_page = None
-        for _ in range(4): 
-            req = youtube.search().list(part="id,snippet", q=query, type="video", maxResults=50, 
-                                        order="relevance", pageToken=next_page, publishedAfter=start_date)
-            resp = req.execute()
-            all_items.extend(resp.get("items", []))
-            next_page = resp.get('nextPageToken')
-            if not next_page: break
+        seen_ids = set()
+
+        for q in queries:
+            logging.info(f"   > Consultando: '{q}'...")
+            next_page = None
+            for i in range(2): 
+                req = youtube.search().list(part="id,snippet", q=q, type="video", maxResults=50, 
+                                            order="relevance", pageToken=next_page, publishedAfter=start_date)
+                resp = req.execute()
+                items = resp.get("items", [])
+                
+                for item in items:
+                    vid = item['id']['videoId']
+                    if vid not in seen_ids:
+                        seen_ids.add(vid)
+                        all_items.append(item)
+                
+                next_page = resp.get('nextPageToken')
+                if not next_page: break
         
+        logging.info(f"📥 Total vídeos únicos encontrados: {len(all_items)}")
+
         videos = []
         video_ids = [item['id']['videoId'] for item in all_items]
         
@@ -74,6 +95,7 @@ def find_and_select_next():
         stats_dict = {}
         for i in range(0, len(video_ids), 50):
             chunk = video_ids[i:i+50]
+            if not chunk: continue
             s_resp = youtube.videos().list(part="statistics", id=','.join(chunk)).execute()
             for item in s_resp.get('items', []):
                 stats_dict[item['id']] = int(item['statistics'].get('viewCount', 0))
@@ -92,16 +114,30 @@ def find_and_select_next():
         logging.error(f"Error API YouTube: {e}")
         return None
 
-    # --- Paso 2: Filtros ---
-    filtered = [v for v in videos if 'official' in v['title'].lower() and 'trailer' in v['title'].lower()]
+    # --- Paso 2: Filtros Anti-Serie ---
+    banned_words = ["season", "temporada", "series", "episode", "capitulo", "capítulo", "vol.", "part 2"]
+    filtered = []
+    for v in videos:
+        t = v['title'].lower()
+        if 'official' in t and 'trailer' in t:
+            if not any(bw in t for bw in banned_words):
+                filtered.append(v)
+    
+    logging.info(f"🔍 Filtrado (Anti-Series): Quedan {len(filtered)} candidatos.")
     if not filtered: return None
 
     # --- Paso 3: Gemini Filter ---
     try:
         genai.configure(api_key=config["GEMINI_API_KEY"])
         model = genai.GenerativeModel(GEMINI_MODEL)
-        titles_str = "\n".join(f"{i+1}. {v['title']}" for i, v in enumerate(filtered[:60])) 
-        prompt = f"""Analiza estos vídeos. Extrae películas de 2025+. Ignora recopilaciones, series, bollywood.
+        
+        top_candidates = filtered[:120]
+        titles_str = "\n".join(f"{i+1}. {v['title']}" for i, v in enumerate(top_candidates)) 
+        
+        logging.info(f"🤖 Enviando {len(top_candidates)} títulos a Gemini...")
+        
+        prompt = f"""Analiza estos vídeos. Extrae solo PELÍCULAS (Feature Films) de 2025+. 
+        EXCLUYE: Series, TV Shows.
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""
         
@@ -114,82 +150,119 @@ def find_and_select_next():
             if 0 <= idx < len(filtered):
                 v = filtered[idx]
                 candidates.append({
-                    **am, 'trailer_url': v['url'], 'views': v['views'], 'upload_date': v['upload_date']
+                    **am, 
+                    'trailer_url': v['url'], 
+                    'views': v['views'], 
+                    'upload_date': v['upload_date'],
+                    'video_title_orig': v['title']
                 })
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error Gemini Filter: {e}")
         return None
 
-    # --- Paso 4: TMDB Enrich ---
+    # --- Paso 4: TMDB Enrich & Filtros Estrictos ---
+    logging.info("📚 Validando con Lógica Híbrida (Cine vs Streaming)...")
     enriched = []
+    
+    streaming_keywords = ["netflix", "prime video", "disney", "hbo", "max", "apple tv", "hulu", "peacock"]
+    # Lista negra de idiomas (Hindi, Telugu, Tamil, Malayalam, Kannada, Punjabi, Urdu)
+    excluded_langs = ['hi', 'te', 'ta', 'ml', 'kn', 'pa', 'ur']
+
     for cand in candidates:
-        res = api_get("/search/movie", {"query": cand['pelicula']})
-        if not res or not res.get("results"): continue
+        movie_name = cand['pelicula']
+        
+        res = api_get("/search/movie", {"query": movie_name})
+        if not res or not res.get("results"): 
+            logging.info(f"   [x] TMDB: No encontrado '{movie_name}'")
+            continue
         
         tmdb_movie = res["results"][0]
-        if str(tmdb_movie.get("release_date", "")[:4]) not in [str(cand['año']), str(cand['año']+1)]: continue
-        if is_published(tmdb_movie["id"]): continue
+        tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
         
-        data = enrich_movie_basic(tmdb_movie["id"], cand['pelicula'], cand['año'], cand['trailer_url'])
+        # 1. Check AÑO (Flexible +-1)
+        target_years = [str(cand['año']-1), str(cand['año']), str(cand['año']+1)]
+        if tmdb_year not in target_years: 
+            logging.info(f"   [x] Descartado '{movie_name}': Año incorrecto ({tmdb_year} vs {target_years})")
+            continue
+        
+        # 2. NUEVO: Check IDIOMA (Anti-Mercado Indio)
+        orig_lang = tmdb_movie.get("original_language", "en")
+        if orig_lang in excluded_langs:
+             logging.info(f"   [x] Descartado '{movie_name}': Mercado Indio/Asiático ({orig_lang})")
+             continue
+
+        # 3. Check PUBLICADO
+        if is_published(tmdb_movie["id"]): 
+            logging.info(f"   [x] Descartado '{movie_name}': YA PUBLICADO.")
+            continue
+        
+        data = enrich_movie_basic(tmdb_movie["id"], movie_name, cand['año'], cand['trailer_url'])
+        
         if data and data.get('has_poster'):
+            # 4. Check ANTIGÜEDAD (Cine 14d vs Streaming 150d)
+            is_streaming = False
+            video_title_lower = cand.get('video_title_orig', '').lower()
+            ia_plat = cand.get('plataforma', 'Cine')
+            
+            if ia_plat != 'Cine' or any(k in video_title_lower for k in streaming_keywords):
+                is_streaming = True
+                data['ia_platform_from_title'] = ia_plat if ia_plat != 'Cine' else "Streaming"
+
+            days_limit = 150 if is_streaming else 14
+            
             if data.get('fecha_estreno'):
                 try:
-                    if datetime.strptime(data['fecha_estreno'], "%Y-%m-%d") < datetime.now() - timedelta(days=14):
+                    release_date = datetime.strptime(data['fecha_estreno'], "%Y-%m-%d")
+                    age_days = (datetime.now() - release_date).days
+                    
+                    if age_days > days_limit:
+                        type_str = "Streaming" if is_streaming else "Cine"
+                        logging.info(f"   [x] Descartado '{movie_name}': {type_str} antiguo ({age_days} días > {days_limit})")
                         continue
                 except: pass
             
+            # --- Aprobado ---
             data['views'] = cand['views']
             data['upload_date'] = cand['upload_date']
-            data['ia_platform_from_title'] = cand.get('plataforma', 'Cine')
             data['needs_web'] = not bool(data.get('sinopsis'))
             enriched.append(data)
+            logging.info(f"   [V] CANDIDATO VÁLIDO ({'Streaming 📺' if is_streaming else 'Cine 🎬'}): {movie_name}")
+        else:
+            logging.info(f"   [x] Descartado '{movie_name}': Sin datos básicos.")
 
     if not enriched: 
-        logging.info("❌ No se encontraron candidatos válidos nuevos.")
+        logging.info("❌ No se encontraron candidatos válidos.")
         return None
 
     # --- Paso 5: Selección ---
     enriched.sort(key=lambda x: x['views'], reverse=True)
     selected = enriched[0]
 
-    # --- DEEP RESEARCH (SIEMPRE ACTIVO) ---
-    logging.info("🕵️  Consultando al Editor IA (Deep Research)...")
+    # --- DEEP RESEARCH ---
+    logging.info(f"🕵️  Deep Research para: {selected['titulo']}...")
     main_actor_ref = selected.get('actors', [selected['titulo']])[0]
-    
     deep_data = get_deep_research_data(selected['titulo'], selected['fecha_estreno'][:4], main_actor_ref, selected['tmdb_id'])
 
     if deep_data:
         strategy = deep_data.get('hook_angle', 'CURIOSITY')
-
-        # --- LOG VISUAL ---
         logging.info("\n" + "█"*60)
-        logging.info(f"🧠 ESTRATEGIA ELEGIDA: {strategy} 🔥")
-        logging.info("█"*60)
-        logging.info(f"🤫 Salseo:       {deep_data.get('movie_curiosity', 'N/A')}")
-        logging.info(f"🎭 Actor Ref:    {deep_data.get('actor_reference', 'N/A')}")
-        logging.info(f"📝 Sinopsis:     {deep_data.get('synopsis', 'N/A')[:80]}...")
+        logging.info(f"🧠 ESTRATEGIA: {strategy}")
+        logging.info(f"🤫 Salseo: {deep_data.get('movie_curiosity', 'N/A')}")
         logging.info("-" * 60 + "\n")
         
-        # Guardado de datos
         if deep_data.get('synopsis'): selected['sinopsis'] = deep_data['synopsis']
         if deep_data.get('platform'): selected['ia_platform_from_title'] = deep_data['platform']
-        
         selected['actor_reference'] = deep_data.get('actor_reference')
         selected['director'] = deep_data.get('director')
         selected['movie_curiosity'] = deep_data.get('movie_curiosity')
         selected['hook_angle'] = strategy
-        
     elif selected.get('needs_web'):
         selected['sinopsis'] = get_synopsis_chain(selected['titulo'], 2025, selected['tmdb_id'])
         selected['hook_angle'] = 'PLOT'
 
-    # Payload Final
-    payload = {
-        **selected,
-        "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"
-    }
-
+    payload = {**selected, "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"}
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    logging.info(f"✅ SELECCIONADA: {selected['titulo']} ({selected.get('views',0):,} views)")
+    logging.info(f"✅ SELECCIONADA: {selected['titulo']}")
     return payload
 
 if __name__ == "__main__":

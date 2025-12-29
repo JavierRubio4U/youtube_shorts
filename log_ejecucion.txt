@@ -8,10 +8,415 @@ INFO: Limpiando shorts de la carpeta: C:\Users\carth\code\youtube_shorts\output\
 INFO: --- Limpieza de Inicio completada ---
 INFO: 
 \U0001f3ac === INTENTO 1/5 ===
-INFO: \U0001f50e INICIANDO BÚSQUEDA DE PELÍCULA...
+INFO: \U0001f50e INICIANDO BÚSQUEDA DE PELÍCULA (MODO HÍBRIDO + ANTI-BOLLYWOOD)...
 INFO: file_cache is only supported with oauth2client<4.0.0
+INFO: \U0001f4e1 Buscando estrenos y novedades streaming desde 2025-12-15T20:00:08Z...
+INFO:    > Consultando: 'official movie trailer 2025 new this week'...
 INFO: Refreshing credentials due to a 401 response. Attempt 1/2.
+INFO:    > Consultando: 'netflix official movie trailer 2025'...
+INFO:    > Consultando: 'prime video official movie trailer 2025'...
+INFO:    > Consultando: 'disney plus official movie trailer 2025'...
+INFO:    > Consultando: 'max hbo official movie trailer 2025'...
+INFO:    > Consultando: 'apple tv official movie trailer 2025'...
+INFO: \U0001f4e5 Total vídeos únicos encontrados: 413
+INFO: \U0001f50d Filtrado (Anti-Series): Quedan 88 candidatos.
+INFO: \U0001f916 Enviando 88 títulos a Gemini...
 WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-E0000 00:00:1766870087.487212   76280 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
-INFO: \u274c No se encontraron candidatos válidos nuevos.
+E0000 00:00:1767038414.260681   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: \U0001f4da Validando con Lógica Híbrida (Cine vs Streaming)...
+INFO:    [x] Descartado 'DRACULA': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'AVENGERS 5: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'WORLDBREAKER': Cine antiguo (60 días > 14)
+INFO:    [x] Descartado 'APEX': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'THE ANACONDAS': YA PUBLICADO.
+INFO:    [x] Descartado 'PEDDI': Mercado Indio/Asiático (te)
+INFO:    [x] Descartado 'PEAKY BLINDERS: The Immortal Man': YA PUBLICADO.
+INFO:    [x] Descartado 'APEX': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): THE RIP
+INFO:    [x] Descartado 'Disclosure Day': YA PUBLICADO.
+INFO:    [x] Descartado 'Greenland 2: Migration': YA PUBLICADO.
+INFO:    [x] Descartado 'POWER RANGERS: MOVIE': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): The Great Flood
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): Melania
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Together
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] TMDB: No encontrado 'MALCOLM IN THE MIDDLE: Life's Still Unfair'
+INFO:    [x] Descartado 'THE BEAUTY': Año incorrecto (2020 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'AVENGERS: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'The Well': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'JACK AND AVA': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Greenland 2: Migration': YA PUBLICADO.
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): INTRUSIVE THOUGHTS
+INFO: \U0001f575\ufe0f  Deep Research para: Melania...
+INFO: \U0001f9e0 Deep Research: Analizando estrategia editorial para 'Melania'...
+E0000 00:00:1767038482.236719   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: 
+\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588
+INFO: \U0001f9e0 ESTRATEGIA: ACTOR
+INFO: \U0001f92b Salseo: Se rumorea que el guion tiene menos líneas de diálogo que una película muda y que el presupuesto de vestuario supera al de 'Dune'.
+INFO: ------------------------------------------------------------
+
+INFO: \u2705 SELECCIONADA: Melania
+INFO: \u25b6 Paso 2: Descargando assets (silencioso)...
+INFO: Póster descargado en: C:\Users\carth\code\youtube_shorts\assets\posters\1413097_poster.jpg
+ERROR: Fallo descarga: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+INFO: 
+\U0001f3ac === INTENTO 2/5 ===
+INFO: \U0001f50e INICIANDO BÚSQUEDA DE PELÍCULA (MODO HÍBRIDO + ANTI-BOLLYWOOD)...
+INFO: file_cache is only supported with oauth2client<4.0.0
+INFO: \U0001f4e1 Buscando estrenos y novedades streaming desde 2025-12-15T20:02:04Z...
+INFO:    > Consultando: 'official movie trailer 2025 new this week'...
+INFO: Refreshing credentials due to a 401 response. Attempt 1/2.
+INFO:    > Consultando: 'netflix official movie trailer 2025'...
+INFO:    > Consultando: 'prime video official movie trailer 2025'...
+INFO:    > Consultando: 'disney plus official movie trailer 2025'...
+INFO:    > Consultando: 'max hbo official movie trailer 2025'...
+INFO:    > Consultando: 'apple tv official movie trailer 2025'...
+INFO: \U0001f4e5 Total vídeos únicos encontrados: 524
+INFO: \U0001f50d Filtrado (Anti-Series): Quedan 130 candidatos.
+INFO: \U0001f916 Enviando 120 títulos a Gemini...
+E0000 00:00:1767038531.160234   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: \U0001f4da Validando con Lógica Híbrida (Cine vs Streaming)...
+INFO:    [x] Descartado 'DRACULA': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'AVENGERS 5: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'WORLDBREAKER': Cine antiguo (60 días > 14)
+INFO:    [x] Descartado 'APEX': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'THE ANACONDAS': YA PUBLICADO.
+INFO:    [x] Descartado 'Disclosure Day': YA PUBLICADO.
+INFO:    [x] Descartado 'PEDDI': Mercado Indio/Asiático (te)
+INFO:    [x] Descartado 'DRACULA': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'THE LAST DELIVERY': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'DHOOM 4': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'BANDAR': Mercado Indio/Asiático (hi)
+INFO:    [x] Descartado 'Anaconda': YA PUBLICADO.
+INFO:    [x] Descartado 'PATRI': Año incorrecto (2011 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'THE SHEEP DETECTIVES': YA PUBLICADO.
+INFO:    [x] TMDB: No encontrado 'FLIGHT 302'
+INFO:    [x] Descartado 'GRIZZLY NIGHT': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'THE ANACONDAS': YA PUBLICADO.
+INFO:    [x] Descartado 'JACK AND AVA': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'PISHACHINI': Año incorrecto (2021 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'THE CONFESSION': Año incorrecto (2016 vs ['2025', '2026', '2027'])
+INFO:    [x] TMDB: No encontrado 'MALCOLM IN THE MIDDLE: Life's Still Unfair'
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] Descartado 'OSCAR SHAW': YA PUBLICADO.
+INFO:    [x] Descartado 'Vrusshabha': Mercado Indio/Asiático (ml)
+INFO:    [x] Descartado 'MOSES THE BLACK': Año incorrecto ( vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Happy Patel Khatarnak Jasoos': Mercado Indio/Asiático (hi)
+INFO:    [x] Descartado 'MERCY': YA PUBLICADO.
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] Descartado 'Greenland 2: Migration': YA PUBLICADO.
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): Melania
+INFO:    [x] Descartado 'AVENGERS 5: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'JIMMY': Año incorrecto (2013 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'AVENGERS: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'APEX': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'PEAKY BLINDERS: The Immortal Man': YA PUBLICADO.
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): THE RIP
+INFO:    [x] Descartado 'POWER RANGERS: MOVIE': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'POWER RANGERS: MOVIE': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Together
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] TMDB: No encontrado 'MALCOLM IN THE MIDDLE: Life's Still Unfair'
+INFO:    [x] Descartado 'THE BEAUTY': Año incorrecto (2020 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'ZOMBIES 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'ZOMBIES 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Descendants 5': Año incorrecto (2018 vs ['2025', '2026', '2027'])
+INFO:    [x] TMDB: No encontrado 'Warfare 3: Final Conflict'
+INFO:    [x] Descartado 'AVENGERS: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'The Well': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'JACK AND AVA': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Greenland 2: Migration': YA PUBLICADO.
+INFO: \U0001f575\ufe0f  Deep Research para: Melania...
+INFO: \U0001f9e0 Deep Research: Analizando estrategia editorial para 'Melania'...
+E0000 00:00:1767038607.077696   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: 
+\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588
+INFO: \U0001f9e0 ESTRATEGIA: ACTOR
+INFO: \U0001f92b Salseo: Se rumorea que exigió por contrato no tener líneas de diálogo de más de 5 palabras y que el presupuesto de vestuario supera al de la trama.
+INFO: ------------------------------------------------------------
+
+INFO: \u2705 SELECCIONADA: Melania
+INFO: \u25b6 Paso 2: Descargando assets (silencioso)...
+INFO: Póster descargado en: C:\Users\carth\code\youtube_shorts\assets\posters\1413097_poster.jpg
+ERROR: Fallo descarga: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+INFO: 
+\U0001f3ac === INTENTO 3/5 ===
+INFO: \U0001f50e INICIANDO BÚSQUEDA DE PELÍCULA (MODO HÍBRIDO + ANTI-BOLLYWOOD)...
+INFO: file_cache is only supported with oauth2client<4.0.0
+INFO: \U0001f4e1 Buscando estrenos y novedades streaming desde 2025-12-15T20:03:52Z...
+INFO:    > Consultando: 'official movie trailer 2025 new this week'...
+INFO: Refreshing credentials due to a 401 response. Attempt 1/2.
+INFO:    > Consultando: 'netflix official movie trailer 2025'...
+INFO:    > Consultando: 'prime video official movie trailer 2025'...
+INFO:    > Consultando: 'disney plus official movie trailer 2025'...
+INFO:    > Consultando: 'max hbo official movie trailer 2025'...
+INFO:    > Consultando: 'apple tv official movie trailer 2025'...
+INFO: \U0001f4e5 Total vídeos únicos encontrados: 449
+INFO: \U0001f50d Filtrado (Anti-Series): Quedan 109 candidatos.
+INFO: \U0001f916 Enviando 109 títulos a Gemini...
+E0000 00:00:1767038638.713941   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: \U0001f4da Validando con Lógica Híbrida (Cine vs Streaming)...
+INFO:    [x] TMDB: No encontrado 'Mr & Mrs Killer'
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'Avengers 5: Doomsday': YA PUBLICADO.
+INFO:    [x] Descartado 'Apex': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Worldbreaker': Cine antiguo (60 días > 14)
+INFO:    [x] Descartado 'Musafir': Año incorrecto (2004 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Greenland 2: Migration': YA PUBLICADO.
+INFO:    [x] Descartado 'Disclosure Day': YA PUBLICADO.
+INFO:    [x] Descartado 'The Anacondas': YA PUBLICADO.
+INFO:    [x] Descartado 'Avengers: Doomsday': YA PUBLICADO.
+INFO:    [x] Descartado 'Peddi': Mercado Indio/Asiático (te)
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'The Last Delivery': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Bandar': Mercado Indio/Asiático (hi)
+INFO:    [x] Descartado 'Tu Meri Main Tera Main Tera Tu Meri': Mercado Indio/Asiático (hi)
+INFO:    [x] TMDB: No encontrado 'Gandi Rajneeti'
+INFO:    [x] Descartado 'The Anacondas': YA PUBLICADO.
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] Descartado 'Dhoom 4': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Anaconda': YA PUBLICADO.
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'Project Zombie': Año incorrecto (1991 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Patri': Año incorrecto (2011 vs ['2024', '2025', '2026'])
+INFO:    [x] TMDB: No encontrado 'Flight 302'
+INFO:    [x] Descartado 'Pishachini': Año incorrecto (2021 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Haal': Año incorrecto (2004 vs ['2024', '2025', '2026'])
+INFO:    [x] TMDB: No encontrado 'Malcolm in the Middle: Life's Still Unfair'
+INFO:    [x] Descartado 'Don 3': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] TMDB: No encontrado 'Jinn (Part 3)'
+INFO:    [x] Descartado 'Oscar Shaw': YA PUBLICADO.
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] Descartado 'Power Rangers: Movie': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Peaky Blinders: The Immortal Man': YA PUBLICADO.
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): The Rip
+INFO:    [x] Descartado 'Apex': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'The Odyssey': YA PUBLICADO.
+INFO:    [x] Descartado 'The Odyssey': YA PUBLICADO.
+INFO:    [x] Descartado 'The Odyssey': YA PUBLICADO.
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] TMDB: No encontrado 'From the Ashes: The Pit'
+INFO:    [x] Descartado 'Single Salma': Mercado Indio/Asiático (hi)
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): A Time For Bravery
+INFO:    [x] Descartado 'Power Rangers: Movie': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): The Great Flood
+INFO:    [x] Descartado 'Power Rangers: Movie': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Andhra King Taluka': Mercado Indio/Asiático (te)
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): The Great Flood
+INFO:    [x] Descartado 'Mercy': YA PUBLICADO.
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Trap House
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Follow My Voice
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Trap House
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Trap House
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Follow My Voice
+INFO:    [x] Descartado 'Madden': Sin datos básicos.
+INFO:    [x] Descartado 'Madden': Sin datos básicos.
+INFO:    [x] Descartado 'Together 2025': Sin datos básicos.
+INFO:    [x] Descartado 'Spring Fever': Año incorrecto (1923 vs ['2024', '2025', '2026'])
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Follow My Voice
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Follow My Voice
+INFO:    [x] Descartado 'Madden': Sin datos básicos.
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'Madden': Sin datos básicos.
+INFO:    [x] TMDB: No encontrado 'Malcolm in the Middle: Life's Still Unfair'
+INFO:    [x] Descartado 'The Beauty': Año incorrecto (2020 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Zombies 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Zombies 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Avengers: Doomsday': YA PUBLICADO.
+INFO:    [x] Descartado 'Zombies 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Descendants 5': Año incorrecto (2018 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Zombies 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Descendants 5': Año incorrecto (2018 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'The Odyssey': YA PUBLICADO.
+INFO:    [x] Descartado 'The Well': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Jack and Ava': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Oscar Shaw': YA PUBLICADO.
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): Intrusive Thoughts
+INFO: \U0001f575\ufe0f  Deep Research para: Trap House...
+INFO: \U0001f9e0 Deep Research: Analizando estrategia editorial para 'Trap House'...
+E0000 00:00:1767038729.131475   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: 
+\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588
+INFO: \U0001f9e0 ESTRATEGIA: ACTOR
+INFO: \U0001f92b Salseo: El guion es del creador de 'Fast & Furious', así que prepárate: la película va literalmente sobre la FAMILIA (disparándose entre ellos).
+INFO: ------------------------------------------------------------
+
+INFO: \u2705 SELECCIONADA: Trap House
+INFO: \u25b6 Paso 2: Descargando assets (silencioso)...
+INFO: Póster descargado en: C:\Users\carth\code\youtube_shorts\assets\posters\628847_poster.jpg
+ERROR: Fallo descarga: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+INFO: 
+\U0001f3ac === INTENTO 4/5 ===
+INFO: \U0001f50e INICIANDO BÚSQUEDA DE PELÍCULA (MODO HÍBRIDO + ANTI-BOLLYWOOD)...
+INFO: file_cache is only supported with oauth2client<4.0.0
+INFO: \U0001f4e1 Buscando estrenos y novedades streaming desde 2025-12-15T20:05:48Z...
+INFO:    > Consultando: 'official movie trailer 2025 new this week'...
+INFO: Refreshing credentials due to a 401 response. Attempt 1/2.
+INFO:    > Consultando: 'netflix official movie trailer 2025'...
+INFO:    > Consultando: 'prime video official movie trailer 2025'...
+INFO:    > Consultando: 'disney plus official movie trailer 2025'...
+INFO:    > Consultando: 'max hbo official movie trailer 2025'...
+INFO:    > Consultando: 'apple tv official movie trailer 2025'...
+INFO: \U0001f4e5 Total vídeos únicos encontrados: 529
+INFO: \U0001f50d Filtrado (Anti-Series): Quedan 130 candidatos.
+INFO: \U0001f916 Enviando 120 títulos a Gemini...
+E0000 00:00:1767038755.416756   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: \U0001f4da Validando con Lógica Híbrida (Cine vs Streaming)...
+INFO:    [x] Descartado 'DRACULA': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'AVENGERS 5: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'WORLDBREAKER': Cine antiguo (60 días > 14)
+INFO:    [x] Descartado 'THE ANACONDAS': YA PUBLICADO.
+INFO:    [x] Descartado 'APEX': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Disclosure Day': YA PUBLICADO.
+INFO:    [x] Descartado 'PEDDI': Mercado Indio/Asiático (te)
+INFO:    [x] Descartado 'THE LAST DELIVERY': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'DRACULA': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'DHOOM 4': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'BANDAR': Mercado Indio/Asiático (hi)
+INFO:    [x] Descartado 'Anaconda': YA PUBLICADO.
+INFO:    [x] Descartado 'PATRI': Año incorrecto (2011 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'THE SHEEP DETECTIVES': YA PUBLICADO.
+INFO:    [x] TMDB: No encontrado 'FLIGHT 302'
+INFO:    [x] Descartado 'THE ANACONDAS': YA PUBLICADO.
+INFO:    [x] Descartado 'GRIZZLY NIGHT': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'JACK AND AVA': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'THE CONFESSION': Año incorrecto (2016 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'PISHACHINI': Año incorrecto (2021 vs ['2024', '2025', '2026'])
+INFO:    [x] TMDB: No encontrado 'MALCOLM IN THE MIDDLE: Life's Still Unfair'
+INFO:    [x] Descartado 'Vrusshabha': Mercado Indio/Asiático (ml)
+INFO:    [x] Descartado 'OSCAR SHAW': YA PUBLICADO.
+INFO:    [x] Descartado 'MOSES THE BLACK': Año incorrecto ( vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Greenland 2: Migration': YA PUBLICADO.
+INFO:    [x] Descartado 'MERCY': YA PUBLICADO.
+INFO:    [x] Descartado 'JIMMY': Año incorrecto (2013 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] Descartado 'Happy Patel Khatarnak Jasoos': Mercado Indio/Asiático (hi)
+INFO:    [x] Descartado 'AVENGERS: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'THE ODYSSEY': YA PUBLICADO.
+INFO:    [x] Descartado 'PISHACHINI': Año incorrecto (2021 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'JIMMY': Año incorrecto (2013 vs ['2025', '2026', '2027'])
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): THE RIP
+INFO:    [x] Descartado 'APEX': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'PEAKY BLINDERS: The Immortal Man': YA PUBLICADO.
+INFO:    [x] Descartado 'POWER RANGERS: MOVIE': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'POWER RANGERS: MOVIE': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Together
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'MADDEN': Sin datos básicos.
+INFO:    [x] TMDB: No encontrado 'MALCOLM IN THE MIDDLE: Life's Still Unfair'
+INFO:    [x] Descartado 'THE BEAUTY': Año incorrecto (2020 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'ZOMBIES 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'ZOMBIES 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Descendants 5': Año incorrecto (2018 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'AVENGERS: DOOMSDAY': YA PUBLICADO.
+INFO:    [x] Descartado 'The Well': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'JACK AND AVA': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO: \U0001f575\ufe0f  Deep Research para: El botín...
+INFO: \U0001f9e0 Deep Research: Analizando estrategia editorial para 'El botín'...
+E0000 00:00:1767038833.074036   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: 
+\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588
+INFO: \U0001f9e0 ESTRATEGIA: ACTOR
+INFO: \U0001f92b Salseo: Es básicamente la excusa más cara de la historia para que Damon y Ben Affleck sigan cobrando cheques gigantes juntos en Netflix. El verdadero 'botín' es su sueldo.
+INFO: ------------------------------------------------------------
+
+INFO: \u2705 SELECCIONADA: El botín
+INFO: \u25b6 Paso 2: Descargando assets (silencioso)...
+INFO: Póster descargado en: C:\Users\carth\code\youtube_shorts\assets\posters\1306368_poster.jpg
+ERROR: Fallo descarga: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+INFO: 
+\U0001f3ac === INTENTO 5/5 ===
+INFO: \U0001f50e INICIANDO BÚSQUEDA DE PELÍCULA (MODO HÍBRIDO + ANTI-BOLLYWOOD)...
+INFO: file_cache is only supported with oauth2client<4.0.0
+INFO: \U0001f4e1 Buscando estrenos y novedades streaming desde 2025-12-15T20:07:41Z...
+INFO:    > Consultando: 'official movie trailer 2025 new this week'...
+INFO: Refreshing credentials due to a 401 response. Attempt 1/2.
+INFO:    > Consultando: 'netflix official movie trailer 2025'...
+INFO:    > Consultando: 'prime video official movie trailer 2025'...
+INFO:    > Consultando: 'disney plus official movie trailer 2025'...
+INFO:    > Consultando: 'max hbo official movie trailer 2025'...
+INFO:    > Consultando: 'apple tv official movie trailer 2025'...
+INFO: \U0001f4e5 Total vídeos únicos encontrados: 509
+INFO: \U0001f50d Filtrado (Anti-Series): Quedan 125 candidatos.
+INFO: \U0001f916 Enviando 120 títulos a Gemini...
+E0000 00:00:1767038868.609266   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: \U0001f4da Validando con Lógica Híbrida (Cine vs Streaming)...
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'Avengers 5: Doomsday': YA PUBLICADO.
+INFO:    [x] Descartado 'Worldbreaker': Cine antiguo (60 días > 14)
+INFO:    [x] Descartado 'Apex': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Disclosure Day': YA PUBLICADO.
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] Descartado 'Bandar': Mercado Indio/Asiático (hi)
+INFO:    [x] Descartado 'The Last Delivery': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Anaconda': YA PUBLICADO.
+INFO:    [x] Descartado 'Peddi': Mercado Indio/Asiático (te)
+INFO:    [x] Descartado 'Dhoom 4': Año incorrecto ( vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Grizzly Night': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Patri': Año incorrecto (2011 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Greenland 2: Migration': YA PUBLICADO.
+INFO:    [x] Descartado 'Champion': Año incorrecto (2022 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'The Anacondas': YA PUBLICADO.
+INFO:    [x] Descartado 'Jack and Ava': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Pishachini': Año incorrecto (2021 vs ['2024', '2025', '2026'])
+INFO:    [x] TMDB: No encontrado 'Malcolm in the Middle: Life's Still Unfair'
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [x] Descartado 'Oscar Shaw': YA PUBLICADO.
+INFO:    [x] Descartado 'Vrusshabha': Mercado Indio/Asiático (ml)
+INFO:    [x] Descartado 'Moses the Black': Año incorrecto ( vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Happy Patel Khatarnak Jasoos': Mercado Indio/Asiático (hi)
+INFO:    [x] Descartado 'Mercy': YA PUBLICADO.
+INFO:    [x] Descartado 'The Sheep Detectives': YA PUBLICADO.
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): Melania
+INFO:    [x] Descartado 'Avengers 5: Doomsday': YA PUBLICADO.
+INFO:    [x] Descartado 'Jimmy': Año incorrecto (2013 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Avengers: Doomsday': YA PUBLICADO.
+INFO:    [x] Descartado 'The Odyssey': YA PUBLICADO.
+INFO:    [x] Descartado 'Pishachini': Año incorrecto (2021 vs ['2024', '2025', '2026'])
+INFO:    [x] Descartado 'Power Rangers: Movie': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Peaky Blinders: The Immortal Man': YA PUBLICADO.
+INFO:    [x] Descartado 'Apex': Año incorrecto (2021 vs ['2025', '2026', '2027'])
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): The Rip
+INFO:    [x] Descartado 'Power Rangers: Movie': Año incorrecto (1995 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Madden': Sin datos básicos.
+INFO:    [V] CANDIDATO VÁLIDO (Streaming \U0001f4fa): Together
+INFO:    [x] Descartado 'Madden': Sin datos básicos.
+INFO:    [x] Descartado 'Dracula': Cine antiguo (38 días > 14)
+INFO:    [x] Descartado 'Madden': Sin datos básicos.
+INFO:    [x] TMDB: No encontrado 'Malcolm in the Middle: Life's Still Unfair'
+INFO:    [x] Descartado 'The Beauty': Año incorrecto (2020 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Zombies 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Zombies 5': Año incorrecto (2017 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Descendants 5': Año incorrecto (2018 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Avengers: Doomsday': YA PUBLICADO.
+INFO:    [x] Descartado 'The Well': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [x] Descartado 'Jack and Ava': Año incorrecto (2024 vs ['2025', '2026', '2027'])
+INFO:    [V] CANDIDATO VÁLIDO (Cine \U0001f3ac): Intrusive Thoughts
+INFO: \U0001f575\ufe0f  Deep Research para: Melania...
+INFO: \U0001f9e0 Deep Research: Analizando estrategia editorial para 'Melania'...
+E0000 00:00:1767038945.783836   73832 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO: 
+\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588
+INFO: \U0001f9e0 ESTRATEGIA: ACTOR
+INFO: \U0001f92b Salseo: Se rumorea que el contrato prohíbe explícitamente escenas donde tenga que tocarle la mano a Donald más de 3 segundos seguidos.
+INFO: ------------------------------------------------------------
+
+INFO: \u2705 SELECCIONADA: Melania
+INFO: \u25b6 Paso 2: Descargando assets (silencioso)...
+INFO: Póster descargado en: C:\Users\carth\code\youtube_shorts\assets\posters\1413097_poster.jpg
+ERROR: Fallo descarga: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
 ERROR: \U0001f6ab NO SE PUBLICÓ NADA.

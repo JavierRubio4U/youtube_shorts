@@ -6,6 +6,13 @@ import subprocess
 import json
 from datetime import datetime
 
+# --- FIX: FORZAR UTF-8 EN WINDOWS ---
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
+# ------------------------------------
+
 # --- Imports ---
 import find 
 import download_assets

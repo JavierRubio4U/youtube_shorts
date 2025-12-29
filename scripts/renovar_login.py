@@ -9,10 +9,7 @@ SECRETS_FILE = ROOT / "config" / "client_secret.json"
 TOKEN_FILE = ROOT / "output" / "state" / "youtube_token.json"
 
 # Permisos necesarios (Subir videos y Buscar para find.py)
-SCOPES = [
-    'https://www.googleapis.com/auth/youtube.upload',
-    'https://www.googleapis.com/auth/youtube.force-ssl'
-]
+SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
 def main():
     print(f"🔵 Buscando secretos en: {SECRETS_FILE}")
