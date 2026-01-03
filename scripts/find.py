@@ -115,7 +115,11 @@ def find_and_select_next():
         return None
 
     # --- Paso 2: Filtros Anti-Serie ---
-    banned_words = ["season", "temporada", "series", "episode", "capitulo", "capítulo", "vol.", "part 2"]
+    banned_words = [
+        "season", "temporada", "series", "episode", "capitulo", "capítulo", "vol.", "part 2",
+        "hindi", "dubbed", "fan made", "concept trailer", "un-official", "parody",
+        "tamil", "telugu", "kannada", "malayalam" # Bloqueo regional extra
+    ]
     filtered = []
     for v in videos:
         t = v['title'].lower()

@@ -139,7 +139,14 @@ def main():
         final_video = concatenate_videoclips([intro_clip] + video_clips_resized, method="compose")
 
         logging.info("Preparando pista de audio...")
-        audio_clip = AudioFileClip(str(voice_path))
+        #audio_clip = AudioFileClip(str(voice_path))
+        #final_audio = audio_clip
+        # --- CAMBIO: Añadir guarda de silencio de 0.5s ---
+        raw_voice = AudioFileClip(str(voice_path))
+        silence_padding = AudioClip(lambda t: [0, 0], duration=0.5, fps=44100)
+        audio_clip = concatenate_audioclips([silence_padding, raw_voice])
+        # -------------------------------------------------
+        
         final_audio = audio_clip
 
         music_dir = ROOT / "assets" / "music"

@@ -4,26 +4,20 @@ from pathlib import Path
 import logging
 import re
 import google.generativeai as genai  
-import sys  # CAMBIO: Necesario para sys.exit()
+import sys
 from gemini_config import GEMINI_MODEL
 from datetime import datetime  
-
 
 # --- Configuración ---
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 SEL_FILE = STATE / "next_release.json"
 META_FILE = STATE / "youtube_metadata.json"
-CONFIG_DIR = ROOT / "config"  # CAMBIO: Añadido para la clave de API
+CONFIG_DIR = ROOT / "config"
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# --- Constantes de IA ---
-# CAMBIO: Usamos el modelo de Gemini Pro
-# GEMINI_MODEL = 'gemini-2.5-pro'
-
 # --- Carga de la clave de API de Google ---
-# CAMBIO: Añadido bloque de carga de la API Key de Gemini
 try:
     GOOGLE_CONFIG_FILE = CONFIG_DIR / "google_api_key.txt"
     with open(GOOGLE_CONFIG_FILE, "r") as f:
@@ -38,8 +32,6 @@ except (FileNotFoundError, ValueError) as e:
 # --- Función de traducción de título ---
 def _translate_title_with_ai(title: str) -> str | None:
     """Usa Gemini para traducir un título con el prompt 'blindado' optimizado."""
-    
-    # El prompt es idéntico al que validamos en gemini.py, es perfecto para esta tarea.
     prompt = f"""
     Eres un experto en la localización de títulos de películas para el mercado de España.
     Tu ÚNICA tarea es traducir el siguiente título de película al castellano.
@@ -53,7 +45,6 @@ def _translate_title_with_ai(title: str) -> str | None:
     """
     try:
         logging.info(f"Traduciendo título '{title}' con el modelo '{GEMINI_MODEL}'...")
-        # CAMBIO: Lógica de generación con Gemini
         model = genai.GenerativeModel(GEMINI_MODEL)
         response = model.generate_content(prompt)
         translation = response.text.strip().strip('"')
@@ -76,8 +67,9 @@ def main():
     original_title = sel.get("titulo", "Sin Título")
     
     # --- PASO DE TRADUCCIÓN (AHORA CON GEMINI) ---
-    translated_title = _translate_title_with_ai(original_title)
-    final_title = translated_title if translated_title else original_title
+    # translated_title = _translate_title_with_ai(original_title)
+    # final_title = translated_title if translated_title else original_title
+    final_title = original_title
 
     # DESPUÉS
     fecha = sel.get("fecha_estreno", "N/A")
@@ -87,63 +79,76 @@ def main():
 
     if fecha and fecha != "N/A":
         try:
-            # 1. Aislamos la fecha (ej: '2025-10-23') para eliminar la hora si la hubiera
             date_part = fecha.split('T')[0]
-            # 2. Convertimos el texto a un objeto de fecha real
             date_obj = datetime.strptime(date_part, '%Y-%m-%d')
-            # 3. Formateamos la fecha al formato dd/MM/yy que necesitas
             fecha_estreno_str = date_obj.strftime('%d/%m/%y')
-            # 4. Obtenemos el año de forma segura
             year = date_obj.strftime('%Y')
         except ValueError:
-            # Si la fecha viene en un formato inesperado, lo registramos y continuamos sin ella
             logging.warning(f"Formato de fecha no válido: '{fecha}'. No se usará en el título.")
     
-    # --- 🔴 INICIO DEL CAMBIO: LÓGICA DE PLATAFORMA MEJORADA (CON FALLBACK DE IA) ---
+    # --- 🔴 INICIO DEL CAMBIO: LÓGICA DE PLATAFORMA SANITIZADA ---
     
-    # 1. Plataforma detectada por IA desde el título (Ej: "Disney+")
+    # 1. Plataforma detectada por IA desde el título
     ia_platform = sel.get("ia_platform_from_title")
 
-    # 2. Plataformas de la API de TMDB (Ej: ["Disney+ (US)"] o [])
+    # 2. Plataformas de la API de TMDB
     plataformas_dict = sel.get("platforms", {})
     tmdb_streaming_platforms = plataformas_dict.get("streaming", [])
 
-    plataforma_principal = "Cine" # Valor por defecto
+    plataforma_principal = "Cine" # Valor por defecto inicial
 
-    # Prioridad 1: Usar la plataforma de la IA si existe y no es "Cine"
+    # Lógica de decisión estricta
+    usar_ia = False
+    es_streaming_generico = False # Flag para saber si es streaming pero no sabemos cual
+
     if ia_platform and ia_platform != "Cine":
+        low_p = ia_platform.lower()
+        # Palabras prohibidas que indican duda o texto sucio
+        bad_keywords = ["probable", "posible", "estimad", "unknown", "desconocid", "tba", "tbd", "check", "verificar"]
+        
+        if any(kw in low_p for kw in bad_keywords):
+            logging.info(f"Plataforma IA '{ia_platform}' descartada por ser incierta.")
+            usar_ia = False
+            # Si dice probable, asumimos que al menos es streaming
+            es_streaming_generico = True 
+        elif low_p.strip() == "streaming":
+            logging.info(f"Plataforma IA '{ia_platform}' descartada por ser genérica.")
+            usar_ia = False
+            es_streaming_generico = True
+        else:
+            usar_ia = True
+
+    # Asignación final
+    if usar_ia:
         plataforma_principal = ia_platform
-        logging.info(f"Usando plataforma detectada por IA (del título): {ia_platform}")
-    
-    # Prioridad 2: Usar la plataforma de TMDB si la IA no detectó nada
+        logging.info(f"Usando plataforma IA: {plataforma_principal}")
     elif tmdb_streaming_platforms:
         plataforma_principal = tmdb_streaming_platforms[0]
-        logging.info(f"Usando plataforma de TMDB: {plataforma_principal}")
-    
-    # Prioridad 3: Usar "Cine" (ya está como valor por defecto)
+        logging.info(f"Usando plataforma TMDB (Fallback): {plataforma_principal}")
+    elif es_streaming_generico:
+        # Si la IA dijo Streaming/Probable pero TMDB no sabe nada, ponemos TBD en vez de Cine
+        plataforma_principal = "TBD"
+        logging.info("Plataforma incierta. Usando 'TBD'.")
     else:
-        logging.info("No se detectó plataforma de IA ni TMDB. Usando 'Cine'.")
+        # Si no hay indicios de streaming, asumimos Cine
+        plataforma_principal = "Cine"
+        logging.info("Sin datos de plataforma. Usando 'Cine'.")
+    
     # --- FIN LÓGICA DE PLATAFORMA ---
     
     # --- LÓGICA DE TÍTULO CON PAÍS DE ESTRENO ---
-    # 1. Preparamos la plataforma con el país (si no es de España)
     pais_de_la_fecha = sel.get("pais_de_la_fecha")
     
     if pais_de_la_fecha and pais_de_la_fecha != "ES":
-        # Ej: "Amazon Prime Video (US)"
         plataforma_con_pais = f"{plataforma_principal} ({pais_de_la_fecha})"
     else:
-        # Ej: "Amazon Prime Video"
         plataforma_con_pais = plataforma_principal
 
-    # 2. Construimos el título final con el nuevo formato
+    # Construimos el título final
     if fecha_estreno_str:
-        # Formato: Título - Plataforma (País) - Fecha
         youtube_title = f"{final_title} - {plataforma_con_pais} - {fecha_estreno_str}"
     else:
-        # Si no hay fecha, no la incluimos
         youtube_title = f"{final_title} - {plataforma_con_pais}"
-    # --- FIN DEL CAMBIO ---
     
     # Plataformas para desc/hashtags
     todas_las_plataformas = sorted(list(set(
@@ -164,20 +169,19 @@ def main():
         f"► Título: {final_title}\n"
         f"► Año de estreno: {year}\n"
         f"► Sinopsis: {sel.get('sinopsis', 'Próximamente más detalles.')}\n\n"
-        f"► Plataformas: {plataformas_str_desc}\n\n"  # ✅ Fix typo
+        f"► Plataformas: {plataformas_str_desc}\n\n"
         f"¡No te pierdas las últimas novedades y tráilers de cine y series!\n\n"
         f"#trailer #tráilerespañol #{final_title.replace(' ', '').replace(':', '')} {plataformas_str_hashtags}"
     )
 
-    # Keywords mejorados
     keywords = [
         "tráiler", "trailer", "tráiler oficial", "tráiler español", "película", "cine", "estreno",
         final_title, f"{final_title} trailer", f"{final_title} pelicula"
     ]
     if year != "N/A":
         keywords.append(year)
-    keywords += [g for g in sel.get("generos", []) if g]  # Asume añadido al payload
-    keywords += [r for r in sel.get("reparto_top", []) if r]  # Asume añadido
+    keywords += [g for g in sel.get("generos", []) if g]
+    keywords += [r for r in sel.get("reparto_top", []) if r]
 
     metadata = {
         "tmdb_id": sel.get("tmdb_id"),
