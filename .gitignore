@@ -16,6 +16,7 @@ output/
 *.mp3
 *.jpg
 *.png
+log_ejecucion.txt
 
 # --- Python ---
 __pycache__/
