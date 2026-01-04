@@ -62,7 +62,7 @@ def find_and_select_next():
             "apple tv official movie trailer 2025"
         ]
         
-        start_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        start_date = (datetime.now(timezone.utc) - timedelta(days=14)).strftime('%Y-%m-%dT%H:%M:%SZ')
         logging.info(f"📡 Buscando estrenos y novedades streaming desde {start_date}...")
         
         all_items = []
@@ -212,7 +212,8 @@ def find_and_select_next():
                 is_streaming = True
                 data['ia_platform_from_title'] = ia_plat if ia_plat != 'Cine' else "Streaming"
 
-            days_limit = 150 if is_streaming else 14
+            # Si es streaming, permitimos hasta 1 año (re-estreno en plataforma). Cine: 60 días.
+            days_limit = 365 if is_streaming else 60
             
             if data.get('fecha_estreno'):
                 try:
@@ -220,9 +221,22 @@ def find_and_select_next():
                     age_days = (datetime.now() - release_date).days
                     
                     if age_days > days_limit:
-                        type_str = "Streaming" if is_streaming else "Cine"
-                        logging.info(f"   [x] Descartado '{movie_name}': {type_str} antiguo ({age_days} días > {days_limit})")
-                        continue
+                        # Excepción: Si es streaming y el trailer es MUY reciente (<7 días), lo aceptamos igual
+                        # asumiendo que es un lanzamiento en plataforma de una peli vieja.
+                        trailer_date = datetime.strptime(cand['upload_date'], "%Y-%m-%dT%H:%M:%SZ")
+                        trailer_age = (datetime.now() - trailer_date).days
+                        
+                        # Validar disponibilidad en España para Netflix, Prime, Disney+
+                        streaming_platforms = data.get('platforms', {}).get('streaming', [])
+                        target_platforms = ["Netflix", "Amazon Prime Video", "Disney Plus"]
+                        is_available_es = any(p in sp for sp in streaming_platforms for p in target_platforms if "(US)" not in sp)
+
+                        if is_streaming and trailer_age <= 7 and is_available_es:
+                             logging.info(f"   [!] Aceptado '{movie_name}' (Streaming ES): Estreno antiguo ({age_days}d) pero trailer NUEVO ({trailer_age}d) y disponible en España.")
+                        else:
+                            type_str = "Streaming" if is_streaming else "Cine"
+                            logging.info(f"   [x] Descartado '{movie_name}': {type_str} antiguo ({age_days} días > {days_limit}) o no disponible en ES.")
+                            continue
                 except: pass
             
             # --- Aprobado ---
@@ -238,8 +252,19 @@ def find_and_select_next():
         logging.info("❌ No se encontraron candidatos válidos.")
         return None
 
-    # --- Paso 5: Selección ---
-    enriched.sort(key=lambda x: x['views'], reverse=True)
+    # --- Paso 5: Selección (Prioridad Inmediatez) ---
+    def calculate_score(item):
+        views = item.get('views', 0)
+        try:
+            pub_time = datetime.strptime(item['upload_date'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            hours_ago = (datetime.now(timezone.utc) - pub_time).total_seconds() / 3600
+            # Bonus x10 si es de las últimas 24h
+            recency_bonus = 10 if hours_ago < 24 else 1
+            return views * recency_bonus
+        except:
+            return views
+
+    enriched.sort(key=calculate_score, reverse=True)
     selected = enriched[0]
 
     # --- DEEP RESEARCH ---
@@ -263,6 +288,15 @@ def find_and_select_next():
     elif selected.get('needs_web'):
         selected['sinopsis'] = get_synopsis_chain(selected['titulo'], 2025, selected['tmdb_id'])
         selected['hook_angle'] = 'PLOT'
+
+    # --- RESUMEN FINAL ---
+    logging.info("\n" + "═"*60)
+    logging.info(f"🎬 RESUMEN DE SELECCIÓN: {selected['titulo']} ({selected['fecha_estreno'][:4]})")
+    logging.info(f"🔗 Trailer: {selected.get('trailer_url', 'N/A')}")
+    logging.info(f"🧠 Estrategia: {selected.get('hook_angle', 'N/A')}")
+    logging.info(f"🤫 Salseo: {selected.get('movie_curiosity', 'N/A')}")
+    logging.info(f"📝 Sinopsis: {selected.get('sinopsis', 'N/A')}")
+    logging.info("═"*60 + "\n")
 
     payload = {**selected, "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"}
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
