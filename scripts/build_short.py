@@ -95,6 +95,16 @@ def main():
         logging.error("No hay clips de video disponibles.")
         return None
 
+    # --- MOSTRAR INFORMACIÓN DE LA PELÍCULA ---
+    logging.info("\n" + "═"*60)
+    logging.info(f"🎬 INFORMACIÓN DE LA PELÍCULA: {title}")
+    logging.info(f"📅 Año: {sel.get('fecha_estreno', 'N/A')[:4]}")
+    logging.info(f"🧠 Estrategia: {sel.get('hook_angle', 'N/A')}")
+    logging.info(f"🤫 Salseo: {sel.get('movie_curiosity', 'N/A')}")
+    logging.info(f"📝 Sinopsis: {sel.get('sinopsis', 'N/A')}")
+    logging.info("═"*60 + "\n")
+    # ------------------------------------------
+
     # CAMBIO: Llamamos directamente a la función main de nuestro script de narración con Gemini.
     narracion, voice_path = ai_narration.main()
     if not voice_path or not os.path.exists(voice_path):
@@ -195,6 +205,25 @@ def main():
         final_clip = final_video.with_audio(final_audio)
 
         out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
+
+        # --- PREVIEW GENERATION ---
+        try:
+            preview_file = SHORTS_DIR / f"{tmdb_id}_{slug}_preview.mp4"
+            logging.info(f"Generando vista previa rápida en '{preview_file.name}'...")
+            # Reducir resolución para velocidad (540px ancho)
+            preview_clip = final_clip.resized(width=540)
+            preview_clip.write_videofile(
+                str(preview_file),
+                codec="libx264",
+                fps=24,
+                preset="ultrafast",
+                ffmpeg_params=["-crf", "35"],
+                logger=None
+            )
+            logging.info(f"✅ Vista previa generada: {preview_file}")
+        except Exception as e:
+            logging.warning(f"No se pudo generar vista previa: {e}")
+        # --------------------------
         
         logging.info(f"Renderizando vídeo final en '{out_file.name}' (este paso puede tardar)...")
         final_clip.write_videofile(
