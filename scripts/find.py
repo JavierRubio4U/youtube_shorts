@@ -53,13 +53,14 @@ def find_and_select_next():
 
     # --- Paso 1: YouTube Search ---
     try:
+        current_year = datetime.now().year
         queries = [
-            "official movie trailer 2025 new this week",
-            "netflix official movie trailer 2025",
-            "prime video official movie trailer 2025",
-            "disney plus official movie trailer 2025",
-            "max hbo official movie trailer 2025",
-            "apple tv official movie trailer 2025"
+            "official movie trailer new this week",
+            "netflix official movie trailer",
+            "prime video official movie trailer",
+            "disney plus official movie trailer",
+            "max hbo official movie trailer",
+            "apple tv official movie trailer"
         ]
         
         start_date = (datetime.now(timezone.utc) - timedelta(days=14)).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -140,7 +141,7 @@ def find_and_select_next():
         
         logging.info(f"🤖 Enviando {len(top_candidates)} títulos a Gemini...")
         
-        prompt = f"""Analiza estos vídeos. Extrae solo PELÍCULAS (Feature Films) de 2025+. 
+        prompt = f"""Analiza estos vídeos. Extrae solo PELÍCULAS (Feature Films) que sean estrenos recientes o próximos.
         EXCLUYE: Series, TV Shows.
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""
@@ -184,7 +185,9 @@ def find_and_select_next():
         tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
         
         # 1. Check AÑO (Flexible +-1)
-        target_years = [str(cand['año']-1), str(cand['año']), str(cand['año']+1)]
+        # Si 'año' no está en cand (porque Gemini no lo devolvió o lo devolvió mal), usamos el año actual como fallback
+        cand_year = cand.get('año', datetime.now().year)
+        target_years = [str(cand_year-1), str(cand_year), str(cand_year+1)]
         if tmdb_year not in target_years: 
             logging.info(f"   [x] Descartado '{movie_name}': Año incorrecto ({tmdb_year} vs {target_years})")
             continue
@@ -200,7 +203,7 @@ def find_and_select_next():
             logging.info(f"   [x] Descartado '{movie_name}': YA PUBLICADO.")
             continue
         
-        data = enrich_movie_basic(tmdb_movie["id"], movie_name, cand['año'], cand['trailer_url'])
+        data = enrich_movie_basic(tmdb_movie["id"], movie_name, cand_year, cand['trailer_url'])
         
         if data and data.get('has_poster'):
             # 4. Check ANTIGÜEDAD (Cine 14d vs Streaming 150d)
@@ -286,7 +289,7 @@ def find_and_select_next():
         selected['movie_curiosity'] = deep_data.get('movie_curiosity')
         selected['hook_angle'] = strategy
     elif selected.get('needs_web'):
-        selected['sinopsis'] = get_synopsis_chain(selected['titulo'], 2025, selected['tmdb_id'])
+        selected['sinopsis'] = get_synopsis_chain(selected['titulo'], selected['año'], selected['tmdb_id'])
         selected['hook_angle'] = 'PLOT'
 
     # --- RESUMEN FINAL ---
