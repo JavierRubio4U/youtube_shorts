@@ -98,9 +98,19 @@ The project follows a structured pipeline with multiple scripts, each handling a
    - **YouTube API** (Optional): Create a project in [Google Cloud Console](https://console.cloud.google.com/). Enable the YouTube Data API. Generate OAuth 2.0 credentials and save `client_secret.json` in the `config` folder. Note: Upload is disabled due to daily limits; enable it in `publish.py` when ready.
 
 4. **Run the Project**:
+   
+   **Automatic Mode (Finds new releases):**
    ```bash
    python scripts/publish.py
    ```
+
+   **Manual Mode (Specific movie):**
+   ```bash
+   python scripts/manual_publish.py "Movie Title" Year
+   # Example: python scripts/manual_publish.py "Gladiator 2" 2024
+   ```
+
+   For more detailed instructions and context, please refer to [project_context.md](project_context.md).
 
 ## Learning Outcomes
 

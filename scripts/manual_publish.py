@@ -1,6 +1,10 @@
 import logging
 import json
 import sys
+import io
+# Force UTF-8 output for Windows terminals
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
@@ -70,16 +74,38 @@ def find_youtube_trailer(title, year):
         logging.error(f"Fallo búsqueda YT: {e}")
         return None, None
 
+class Tee(object):
+    def __init__(self, *files):
+        self.files = files
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush() # If you want the output to be visible immediately
+    def flush(self) :
+        for f in self.files:
+            f.flush()
+
 def main():
-    # 0. Limpieza inicial
+    # 0. Configurar logging dual (Terminal + Archivo)
+    log_file = open("log_ejecucion.txt", "w", encoding="utf-8")
+    sys.stdout = Tee(sys.stdout, log_file)
+    sys.stderr = Tee(sys.stderr, log_file)
+
+    # 0.1 Limpieza inicial
     cleanup_temp.cleanup_on_start()
 
     # 1. Inputs del Usuario
     print("\n" + "="*40)
     print("🎬 PUBLICADOR MANUAL DE SHORTS")
     print("="*40)
-    target_title = input("Nombre de la película: ").strip()
-    target_year = input("Año de estreno: ").strip()
+    
+    if len(sys.argv) >= 3:
+        target_title = sys.argv[1]
+        target_year = sys.argv[2]
+        print(f"Argumentos detectados: {target_title} ({target_year})")
+    else:
+        target_title = input("Nombre de la película: ").strip()
+        target_year = input("Año de estreno: ").strip()
 
     if not target_title or not target_year:
         print("❌ Datos inválidos.")
