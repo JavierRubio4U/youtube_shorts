@@ -74,11 +74,12 @@ The project follows a structured pipeline with multiple scripts, each handling a
 
 ## Setup Instructions
 
+## Setup Instructions
+
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/JavierRubio4U/youtube_shorts.git
+   git clone [https://github.com/JavierRubio4U/youtube_shorts.git](https://github.com/JavierRubio4U/youtube_shorts.git)
    cd youtube-shorts-generator
-   ```
 
 2. **Install Dependencies**:
    - Create a virtual environment:

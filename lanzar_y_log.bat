@@ -1,2 +1,7 @@
-cd /d C:\Users\carth\code\youtube_shorts\
-powershell -Command "C:\pinokio\bin\miniconda\envs\shorts311\python.exe scripts\publish.py | Tee-Object -FilePath log_ejecucion.txt"
+@echo off
+cd /d "%~dp0"
+
+:: Apuntamos a scripts\publish.py usando el python del entorno virtual
+powershell -Command ".\venv\Scripts\python.exe scripts\publish.py | Tee-Object -FilePath log_ejecucion.txt"
+
+pause
