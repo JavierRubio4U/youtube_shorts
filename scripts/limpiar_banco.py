@@ -3,94 +3,101 @@ import os
 import glob
 import logging
 import warnings
+import csv
 
-# Configuración de Logs
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%H:%M:%S'
-)
+# --- CONFIGURACIÓN ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger()
 warnings.filterwarnings('ignore')
 
+def arreglar_importe_definitivo(valor):
+    if pd.isna(valor): return ""
+    try:
+        val_float = float(valor)
+    except ValueError:
+        return str(valor)
+    if val_float.is_integer():
+        return str(int(val_float))
+    else:
+        return "{:.2f}".format(val_float).replace('.', ',')
+
 def procesar_datos_banco():
-    # --- CONFIGURACIÓN ---
-    input_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
-    
-    # Destino final
+    # --- RUTAS ---
+    input_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
+    # input_dir = r'C:\Users\javier.rubio\Downloads' 
     output_dir = r'E:\Contabilidad'
+    
     os.makedirs(output_dir, exist_ok=True)
     
-    patron_busqueda = os.path.join(input_dir, '*Movimientos de cuenta*.xls')
+    patron = os.path.join(input_dir, '*Movimientos de cuenta*.xls')
+    ficheros = glob.glob(patron)
     
-    logger.info("INICIO DEL PROCESO")
-    logger.info(f"Leyendo de: {input_dir}")
-    
-    lista_ficheros = glob.glob(patron_busqueda)
-    
-    if not lista_ficheros:
-        logger.error("No se encontraron ficheros.")
+    if not ficheros:
+        logger.error("No hay ficheros.")
         return
 
-    fichero_mas_reciente = max(lista_ficheros, key=os.path.getctime)
-    logger.info(f"Fichero seleccionado: {os.path.basename(fichero_mas_reciente)}")
+    fichero_reciente = max(ficheros, key=os.path.getctime)
+    logger.info(f"Procesando: {os.path.basename(fichero_reciente)}")
 
     try:
-        df = None
-        
-        # --- CARGA (Soporte para falso XLS/HTML) ---
+        # LEER EXCEL (dtype=str es importante para capturar el dato crudo)
         try:
-            df = pd.read_excel(fichero_mas_reciente, skiprows=10, engine='xlrd')
+            df = pd.read_excel(fichero_reciente, skiprows=10, engine='xlrd', dtype=str)
         except Exception:
-            logger.warning("Activando Plan B (HTML)...")
-            dfs = pd.read_html(fichero_mas_reciente)
-            if dfs:
-                df = dfs[0]
-                df = df.iloc[10:] 
+            dfs = pd.read_html(fichero_reciente, decimal=',', thousands='.')
+            df = dfs[0]
+            if len(df) > 10:
+                df = df.iloc[10:].reset_index(drop=True)
                 df.columns = df.iloc[0]
                 df = df[1:].reset_index(drop=True)
-            else:
-                raise ValueError("No se encontraron tablas.")
-
-        # --- LIMPIEZA ---
+        
         df.columns = df.columns.astype(str).str.strip()
-        indices_a_borrar = [0, 2, 4, 6, 8]
-        if df.shape[1] > 8:
-            df.drop(df.columns[indices_a_borrar], axis=1, inplace=True)
+        
+        # BORRAR COLUMNAS SOBRANTES
+        indices_borrar = [0, 2, 4, 6, 8]
+        cols_borrar = [df.columns[i] for i in indices_borrar if i < len(df.columns)]
+        if cols_borrar: df.drop(columns=cols_borrar, inplace=True)
 
-        # --- FECHAS Y GUARDADO ---
+        # --- APLICAR CORRECCIÓN ---
+        for col in ['Importe', 'Saldo']:
+            if col in df.columns:
+                df[col] = df[col].apply(arreglar_importe_definitivo)
+
+        # GESTIÓN FECHAS (DD/MM/YY)
         col_fecha = 'Fecha Operación'
+        if col_fecha not in df.columns:
+            posibles = [c for c in df.columns if 'Fecha' in c]
+            col_fecha = posibles[0] if posibles else None
 
-        if col_fecha in df.columns:
-            # Convertir fecha
-            df[col_fecha] = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
-            df = df.dropna(subset=[col_fecha])
+        if col_fecha:
+            df['_dt'] = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
+            df = df.dropna(subset=['_dt'])
             
             if not df.empty:
-                # Usamos la fecha MÁXIMA para el nombre
-                fecha_para_nombre = df[col_fecha].max()
+                # Nombre YYYYMM
+                fecha_ref = df['_dt'].max()
+                nombre_fichero = fecha_ref.strftime('%Y%m') + '.csv'
+                ruta_salida = os.path.join(output_dir, nombre_fichero)
                 
-                # --- CAMBIO AQUÍ: %Y (4 dígitos) ---
-                # Ejemplo: Enero 2026 -> 202601.csv
-                nombre_fichero_salida = fecha_para_nombre.strftime('%Y%m') + '.csv'
+                # Formato columna fecha visual: DD/MM/YY
+                df[col_fecha] = df['_dt'].dt.strftime('%d/%m/%y')
                 
-                ruta_salida = os.path.join(output_dir, nombre_fichero_salida)
+                if 'Fecha Valor' in df.columns:
+                    df['Fecha Valor'] = pd.to_datetime(df['Fecha Valor'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%y')
 
-                logger.info(f"Fecha detectada para nombre: {fecha_para_nombre.date()}")
-                logger.info(f"Guardando fichero como: {nombre_fichero_salida}")
+                df.drop(columns=['_dt'], inplace=True)
+
+                logger.info(f"Guardando: {ruta_salida}")
                 
-                df.to_csv(ruta_salida, sep=',', index=False, encoding='utf-8-sig')
+                # GUARDADO FINAL (Sep=, Quote=ALL)
+                df.to_csv(ruta_salida, sep=',', index=False, encoding='utf-8-sig', quoting=csv.QUOTE_ALL)
                 
-                logger.info(f"✅ FINALIZADO. Guardado en: {ruta_salida}")
+                logger.info("✅ FINALIZADO.")
             else:
-                logger.error("Error: Todas las fechas son inválidas.")
-        else:
-            logger.error(f"No existe la columna '{col_fecha}'.")
+                logger.error("Error: Fechas inválidas.")
 
     except Exception as e:
-        logger.error(f"Error crítico: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error: {e}")
 
 if __name__ == "__main__":
     procesar_datos_banco()

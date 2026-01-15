@@ -146,8 +146,34 @@ def find_and_select_next():
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""
         
-        resp = model.generate_content(prompt)
-        ai_movies = json.loads(resp.text.strip().lstrip("```json").rstrip("```").strip())
+        # --- FIX: Safety Settings para evitar respuestas vacías ---
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
+        resp = model.generate_content(prompt, safety_settings=safety_settings)
+        
+        # --- FIX: Limpieza robusta y Debug ---
+        raw_text = resp.text if hasattr(resp, 'text') else ""
+        if not raw_text:
+            logging.error(f"❌ Gemini devolvió respuesta vacía. Feedback del modelo: {resp.prompt_feedback if hasattr(resp, 'prompt_feedback') else 'Desconocido'}")
+            return None
+
+        # Intentar limpiar JSON markdown
+        clean_text = raw_text.strip()
+        if "```json" in clean_text:
+            clean_text = clean_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean_text:
+            clean_text = clean_text.split("```")[1].split("```")[0].strip()
+
+        try:
+            ai_movies = json.loads(clean_text)
+        except json.JSONDecodeError as je:
+            logging.error(f"❌ Error decodificando JSON de Gemini. Respuesta recibida:\n{raw_text[:200]}...") # Loguea solo el inicio
+            return None
         
         candidates = []
         for am in ai_movies:
@@ -162,7 +188,7 @@ def find_and_select_next():
                     'video_title_orig': v['title']
                 })
     except Exception as e:
-        logging.error(f"Error Gemini Filter: {e}")
+        logging.error(f"Error Gemini Filter (General): {e}")
         return None
 
     # --- Paso 4: TMDB Enrich & Filtros Estrictos ---
@@ -170,7 +196,6 @@ def find_and_select_next():
     enriched = []
     
     streaming_keywords = ["netflix", "prime video", "disney", "hbo", "max", "apple tv", "hulu", "peacock"]
-    # Lista negra de idiomas (Hindi, Telugu, Tamil, Malayalam, Kannada, Punjabi, Urdu)
     excluded_langs = ['hi', 'te', 'ta', 'ml', 'kn', 'pa', 'ur']
 
     for cand in candidates:
@@ -184,21 +209,17 @@ def find_and_select_next():
         tmdb_movie = res["results"][0]
         tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
         
-        # 1. Check AÑO (Flexible +-1)
-        # Si 'año' no está en cand (porque Gemini no lo devolvió o lo devolvió mal), usamos el año actual como fallback
         cand_year = cand.get('año', datetime.now().year)
         target_years = [str(cand_year-1), str(cand_year), str(cand_year+1)]
         if tmdb_year not in target_years: 
             logging.info(f"   [x] Descartado '{movie_name}': Año incorrecto ({tmdb_year} vs {target_years})")
             continue
         
-        # 2. NUEVO: Check IDIOMA (Anti-Mercado Indio)
         orig_lang = tmdb_movie.get("original_language", "en")
         if orig_lang in excluded_langs:
              logging.info(f"   [x] Descartado '{movie_name}': Mercado Indio/Asiático ({orig_lang})")
              continue
 
-        # 3. Check PUBLICADO
         if is_published(tmdb_movie["id"]): 
             logging.info(f"   [x] Descartado '{movie_name}': YA PUBLICADO.")
             continue
@@ -206,7 +227,6 @@ def find_and_select_next():
         data = enrich_movie_basic(tmdb_movie["id"], movie_name, cand_year, cand['trailer_url'])
         
         if data and data.get('has_poster'):
-            # 4. Check ANTIGÜEDAD (Cine 14d vs Streaming 150d)
             is_streaming = False
             video_title_lower = cand.get('video_title_orig', '').lower()
             ia_plat = cand.get('plataforma', 'Cine')
@@ -215,7 +235,6 @@ def find_and_select_next():
                 is_streaming = True
                 data['ia_platform_from_title'] = ia_plat if ia_plat != 'Cine' else "Streaming"
 
-            # Si es streaming, permitimos hasta 1 año (re-estreno en plataforma). Cine: 60 días.
             days_limit = 365 if is_streaming else 60
             
             if data.get('fecha_estreno'):
@@ -224,12 +243,9 @@ def find_and_select_next():
                     age_days = (datetime.now() - release_date).days
                     
                     if age_days > days_limit:
-                        # Excepción: Si es streaming y el trailer es MUY reciente (<7 días), lo aceptamos igual
-                        # asumiendo que es un lanzamiento en plataforma de una peli vieja.
                         trailer_date = datetime.strptime(cand['upload_date'], "%Y-%m-%dT%H:%M:%SZ")
                         trailer_age = (datetime.now() - trailer_date).days
                         
-                        # Validar disponibilidad en España para Netflix, Prime, Disney+
                         streaming_platforms = data.get('platforms', {}).get('streaming', [])
                         target_platforms = ["Netflix", "Amazon Prime Video", "Disney Plus"]
                         is_available_es = any(p in sp for sp in streaming_platforms for p in target_platforms if "(US)" not in sp)
@@ -242,7 +258,6 @@ def find_and_select_next():
                             continue
                 except: pass
             
-            # --- Aprobado ---
             data['views'] = cand['views']
             data['upload_date'] = cand['upload_date']
             data['needs_web'] = not bool(data.get('sinopsis'))
@@ -255,14 +270,13 @@ def find_and_select_next():
         logging.info("❌ No se encontraron candidatos válidos.")
         return None
 
-    # --- Paso 5: Selección (Prioridad Inmediatez) ---
+    # --- Paso 5: Selección ---
     def calculate_score(item):
         views = item.get('views', 0)
         try:
             pub_time = datetime.strptime(item['upload_date'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
             hours_ago = (datetime.now(timezone.utc) - pub_time).total_seconds() / 3600
-            # Bonus x10 si es de las últimas 24h
-            recency_bonus = 10 if hours_ago < 24 else 1
+            recency_bonus = 5 if hours_ago < 24 else 1
             return views * recency_bonus
         except:
             return views
@@ -297,8 +311,6 @@ def find_and_select_next():
     logging.info(f"🎬 RESUMEN DE SELECCIÓN: {selected['titulo']} ({selected['fecha_estreno'][:4]})")
     logging.info(f"🔗 Trailer: {selected.get('trailer_url', 'N/A')}")
     logging.info(f"🧠 Estrategia: {selected.get('hook_angle', 'N/A')}")
-    logging.info(f"🤫 Salseo: {selected.get('movie_curiosity', 'N/A')}")
-    logging.info(f"📝 Sinopsis: {selected.get('sinopsis', 'N/A')}")
     logging.info("═"*60 + "\n")
 
     payload = {**selected, "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"}

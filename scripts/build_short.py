@@ -16,8 +16,9 @@ from moviepy import (VideoFileClip, ImageClip, AudioFileClip, AudioClip,
                      CompositeVideoClip, ColorClip,
                      CompositeAudioClip, concatenate_videoclips, concatenate_audioclips)
 import moviepy.audio.fx as afx
+from datetime import datetime
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+#logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
@@ -98,6 +99,7 @@ def main():
     # --- MOSTRAR INFORMACIÓN DE LA PELÍCULA ---
     logging.info("\n" + "═"*60)
     logging.info(f"🎬 INFORMACIÓN DE LA PELÍCULA: {title}")
+    logging.info(f"⏳ HORA INICIO RENDER: {datetime.now().strftime('%H:%M:%S')}") # <--- 3. AÑADE ESTO
     logging.info(f"📅 Año: {sel.get('fecha_estreno', 'N/A')[:4]}")
     logging.info(f"🧠 Estrategia: {sel.get('hook_angle', 'N/A')}")
     logging.info(f"🤫 Salseo: {sel.get('movie_curiosity', 'N/A')}")
@@ -225,15 +227,21 @@ def main():
             logging.warning(f"No se pudo generar vista previa: {e}")
         # --------------------------
         
+        # Define una ruta para el audio temporal dentro de tmp_dir
+        temp_audio_path = tmp_dir / "temp_audio_mix.mp3" 
+
         logging.info(f"Renderizando vídeo final en '{out_file.name}' (este paso puede tardar)...")
         final_clip.write_videofile(
             str(out_file),
             codec="libx264",
-            fps=60,  # Volvemos a 60fps como en antigua para fluidez
+            fps=60,
             preset="fast",
-            bitrate="50000k",  # Alto bitrate para calidad
+            bitrate="50000k",
             ffmpeg_params=["-crf", "18", "-movflags", "faststart"],
-            logger=None
+            logger=None,
+            # AÑADE ESTAS DOS LÍNEAS:
+            temp_audiofile=str(temp_audio_path), 
+            remove_temp=True 
         )
         logging.info(f"✅ Short generado con éxito.")
 

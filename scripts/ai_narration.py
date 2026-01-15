@@ -7,13 +7,32 @@ import tempfile
 import requests  # Necesario para llamar a ElevenLabs
 from gemini_config import GEMINI_MODEL
 
+# scripts/ai_narration.py
+import json
+import logging
+from pathlib import Path
+import google.generativeai as genai
+import tempfile
+import requests
+from gemini_config import GEMINI_MODEL
+
 # --- Configuración ---
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / "output" / "state"
 NARRATION_DIR = ROOT / "assets" / "narration"
 NARRATION_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_DIR = ROOT / "config"
+CONFIG_DIR = ROOT / "config"  # <--- AQUÍ SE DEFINE LA VARIABLE
+
+# --- 🔥 PARCHE CORREGIDO: AHORA SÍ FUNCIONARÁ ---
+# (Lo ponemos AQUÍ, justo después de definir CONFIG_DIR)
+try:
+    with open(CONFIG_DIR / "google_api_key.txt") as f:
+        GOOGLE_API_KEY = f.read().strip()
+    genai.configure(api_key=GOOGLE_API_KEY)
+except Exception as e:
+    logging.error(f"❌ Error al cargar google_api_key.txt en ai_narration: {e}")
+# ------------------------------------------------
 
 # Configuración ElevenLabs
 ELEVEN_VOICE_ID = "2VUqK4PEdMj16L6xTN4J"  # La Andaluza
