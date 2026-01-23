@@ -15,6 +15,9 @@ The full path to the python executable is:
 
 **You must use this full path for executing all scripts to ensure the correct dependencies are used.**
 
+> [!NOTE]
+> We have upgraded to **Python 3.12**. Please ensure your environment is set up accordingly.
+
 For example:
 ```powershell
 C:\Users\carth\code\youtube_shorts\venv\Scripts\python.exe scripts/publish.py
@@ -139,3 +142,27 @@ Queries Google API to see which Gemini models are active with your current key.
     * Your API Key lacks voice permission. Go to Google Cloud Console > Credentials > Restrictions and enable **"Cloud Text-to-Speech API"**.
 2.  **Video uploads but not as a Short:**
     * Verify duration is under 60 seconds. The script chops the script to ensure 30-40 seconds, so this shouldn't happen.
+
+## ⏰ Automatización Diaria (Windows Task Scheduler)
+
+Si tienes configurada una tarea programada en Windows para que este script se ejecute automáticamente todos los días (usando el lanzador `lanzar_y_log.bat`), aquí tienes una guía rápida para gestionarla:
+
+### 1. Abrir el Programador de Tareas
+Tienes dos opciones:
+*   **Opción A (Rápida):** Pulsa la tecla `Windows`, escribe **"Programador de tareas"** y pulsa Enter.
+*   **Opción B (Comando):** Pulsa `Windows + R`, escribe `taskschd.msc` y pulsa Enter.
+
+### 2. Encontrar la Tarea
+En la ventana que se abre, busca en la lista central (dentro de "Biblioteca del Programador de tareas") una tarea que probablemente llamaste **"YouTube Shorts Auto"** o similar.
+
+### 3. Activar, Desactivar o Modificar
+Haz clic derecho sobre el nombre de la tarea para ver las opciones:
+
+*   **Desactivar (Disable):** Detiene la ejecución automática. Útil si te vas de vacaciones o quieres pausar el canal temporalmente.
+*   **Activar (Enable):** Reactiva la programación diaria si estaba pausada.
+*   **Ejecutar (Run):** Lanza el script en ese mismo instante (ideal para probar si funciona sin esperar a la hora programada).
+*   **Propiedades (Properties):**
+    *   Pestaña **Desencadenadores (Triggers):** Aquí puedes cambiar la **hora** a la que se ejecuta (ej: cambiar de las 18:00 a las 20:00).
+    *   Pestaña **Acciones (Actions):** Verifica que la ruta apunte correctamente a tu fichero `lanzar_y_log.bat`.
+        *   *Nota:* Si mueves la carpeta del proyecto de sitio, **debes** actualizar la ruta aquí, o la tarea fallará.
+

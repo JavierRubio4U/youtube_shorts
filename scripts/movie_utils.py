@@ -5,7 +5,8 @@ import requests
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
-import google.generativeai as genai
+
+from google import genai
 from gemini_config import GEMINI_MODEL
 import time
 
@@ -178,10 +179,9 @@ def get_synopsis_chain(title: str, year: int, tmdb_id: str) -> str:
         prompt = f"Escribe una sinopsis corta (50 palabras) y gamberra en español para la película '{title}'. Trama: {movie_data.get('overview', '')}"
         
         config = load_config()
-        genai.configure(api_key=config["GEMINI_API_KEY"])
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
-        return response.text.strip() if response.parts else ""
+        client = genai.Client(api_key=config["GEMINI_API_KEY"])
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        return response.text.strip() if response.text else ""
     except Exception:
         return ""
 
@@ -196,8 +196,7 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str)
     if not config: return None
     
     try:
-        genai.configure(api_key=config["GEMINI_API_KEY"])
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        client = genai.Client(api_key=config["GEMINI_API_KEY"])
 
         research_prompt = f"""
         Investiga la película '{title}' ({year}). 
@@ -213,7 +212,7 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str)
         - 'DIRECTOR' (Si es alguien de culto).
         - 'CURIOSITY' (Si el dato de producción es lo más fuerte).
         - 'PLOT' (Si la trama es tan absurda que se vende sola).
-
+        
         IMPORTANTE: Responde SÓLO con un JSON válido.
         Formato JSON:
         {{
@@ -227,7 +226,7 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str)
         """
         
         # Llamada directa sin agentes beta
-        response = model.generate_content(research_prompt)
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=research_prompt)
         text = response.text.strip()
         
         if "```json" in text:

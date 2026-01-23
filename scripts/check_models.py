@@ -1,5 +1,5 @@
 # scripts/check_models.py
-import google.generativeai as genai
+from google import genai
 import sys
 from pathlib import Path
 
@@ -9,10 +9,11 @@ from movie_utils import load_config
 
 config = load_config()
 if config:
-    genai.configure(api_key=config["GEMINI_API_KEY"])
+    client = genai.Client(api_key=config["GEMINI_API_KEY"])
     print("\n--- MODELOS DISPONIBLES PARA TI ---")
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
+    for m in client.models.list():
+        methods = getattr(m, 'supported_generation_methods', [])
+        if (methods and 'generateContent' in methods) or ('gemini' in m.name):
             print(f"ID: {m.name}")
 else:
     print("No se pudo cargar la config.")

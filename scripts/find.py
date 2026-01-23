@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from googleapiclient.discovery import build
-import google.generativeai as genai
+from google import genai
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from gemini_config import GEMINI_MODEL
@@ -133,8 +133,7 @@ def find_and_select_next():
 
     # --- Paso 3: Gemini Filter ---
     try:
-        genai.configure(api_key=config["GEMINI_API_KEY"])
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        client = genai.Client(api_key=config["GEMINI_API_KEY"])
         
         top_candidates = filtered[:120]
         titles_str = "\n".join(f"{i+1}. {v['title']}" for i, v in enumerate(top_candidates)) 
@@ -146,20 +145,16 @@ def find_and_select_next():
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""
         
-        # --- FIX: Safety Settings para evitar respuestas vacías ---
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
-        
-        resp = model.generate_content(prompt, safety_settings=safety_settings)
+        # New SDK call
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL, 
+            contents=prompt,
+        )
         
         # --- FIX: Limpieza robusta y Debug ---
-        raw_text = resp.text if hasattr(resp, 'text') else ""
+        raw_text = resp.text if resp.text else ""
         if not raw_text:
-            logging.error(f"❌ Gemini devolvió respuesta vacía. Feedback del modelo: {resp.prompt_feedback if hasattr(resp, 'prompt_feedback') else 'Desconocido'}")
+            logging.error(f"❌ Gemini devolvió respuesta vacía.")
             return None
 
         # Intentar limpiar JSON markdown

@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import logging
 import re
-import google.generativeai as genai  
+from google import genai 
 import sys
 from gemini_config import GEMINI_MODEL
 from datetime import datetime  
@@ -17,17 +17,14 @@ CONFIG_DIR = ROOT / "config"
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-# --- Carga de la clave de API de Google ---
-try:
-    GOOGLE_CONFIG_FILE = CONFIG_DIR / "google_api_key.txt"
-    with open(GOOGLE_CONFIG_FILE, "r") as f:
-        GOOGLE_API_KEY = f.read().strip()
-    if not GOOGLE_API_KEY:
-        raise ValueError("La clave de API de Google está vacía.")
-    genai.configure(api_key=GOOGLE_API_KEY)
-except (FileNotFoundError, ValueError) as e:
-    logging.error(f"Error crítico al cargar la clave de API de Google: {e}. Asegúrate de que 'google_api_key.txt' existe en '/config' y no está vacío.")
-    sys.exit(1)
+# --- Helper Key ---
+def get_google_api_key():
+    try:
+        with open(CONFIG_DIR / "google_api_key.txt") as f:
+            return f.read().strip()
+    except Exception as e:
+        logging.error(f"❌ Error al cargar google_api_key.txt: {e}")
+        return None
 
 # --- Función de traducción de título ---
 def _translate_title_with_ai(title: str) -> str | None:
@@ -44,9 +41,12 @@ def _translate_title_with_ai(title: str) -> str | None:
     **Título a traducir:** "{title}"
     """
     try:
+        api_key = get_google_api_key()
+        if not api_key: return None
+
         logging.info(f"Traduciendo título '{title}' con el modelo '{GEMINI_MODEL}'...")
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         translation = response.text.strip().strip('"')
             
         logging.info(f"Título traducido como: '{translation}'")

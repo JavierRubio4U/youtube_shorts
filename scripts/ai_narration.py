@@ -2,16 +2,7 @@
 import json
 import logging
 from pathlib import Path
-import google.generativeai as genai
-import tempfile
-import requests  # Necesario para llamar a ElevenLabs
-from gemini_config import GEMINI_MODEL
-
-# scripts/ai_narration.py
-import json
-import logging
-from pathlib import Path
-import google.generativeai as genai
+from google import genai
 import tempfile
 import requests
 from gemini_config import GEMINI_MODEL
@@ -22,21 +13,20 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / "output" / "state"
 NARRATION_DIR = ROOT / "assets" / "narration"
 NARRATION_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_DIR = ROOT / "config"  # <--- AQUÍ SE DEFINE LA VARIABLE
+CONFIG_DIR = ROOT / "config"
 
-# --- 🔥 PARCHE CORREGIDO: AHORA SÍ FUNCIONARÁ ---
-# (Lo ponemos AQUÍ, justo después de definir CONFIG_DIR)
-try:
-    with open(CONFIG_DIR / "google_api_key.txt") as f:
-        GOOGLE_API_KEY = f.read().strip()
-    genai.configure(api_key=GOOGLE_API_KEY)
-except Exception as e:
-    logging.error(f"❌ Error al cargar google_api_key.txt en ai_narration: {e}")
-# ------------------------------------------------
+# --- API Key Loading Helper ---
+def get_google_api_key():
+    try:
+        with open(CONFIG_DIR / "google_api_key.txt") as f:
+            return f.read().strip()
+    except Exception as e:
+        logging.error(f"❌ Error al cargar google_api_key.txt: {e}")
+        return None
 
 # Configuración ElevenLabs
-ELEVEN_VOICE_ID = "2VUqK4PEdMj16L6xTN4J"  # La Andaluza
-ELEVEN_MODEL_ID = "eleven_multilingual_v2" # El mejor para español natural
+ELEVEN_VOICE_ID = "2VUqK4PEdMj16L6xTN4J"
+ELEVEN_MODEL_ID = "eleven_multilingual_v2"
 
 # --- GENERACIÓN DE GUION (GEMINI) ---
 def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_words=65) -> tuple[str, str] | None:
@@ -86,8 +76,11 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_w
     """
 
     try:
-        model_instance = genai.GenerativeModel(model)
-        resp = model_instance.generate_content(prompt)
+        api_key = get_google_api_key()
+        if not api_key: return None, None
+
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(model=model, contents=prompt)
         text = resp.text.strip()
         
         if "|" in text:
