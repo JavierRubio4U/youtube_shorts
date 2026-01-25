@@ -5,6 +5,7 @@ from pathlib import Path
 from google import genai
 import tempfile
 import requests
+import subprocess
 from gemini_config import GEMINI_MODEL
 
 # --- Configuración ---
@@ -31,7 +32,7 @@ ELEVEN_VOICE_ID = "2VUqK4PEdMj16L6xTN4J"
 ELEVEN_MODEL_ID = "eleven_multilingual_v2"
 
 # --- GENERACIÓN DE GUION (GEMINI) ---
-def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_words=60) -> tuple[str, str] | None:
+def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_words=65) -> tuple[str, str] | None:
     
     # Datos
     title = sel.get("titulo")
@@ -142,11 +143,27 @@ def _synthesize_elevenlabs(hook: str, body: str, tmdb_id: str) -> Path | None:
         response = requests.post(url, json=payload, headers=headers)
 
         if response.status_code == 200:
-            final_wav = NARRATION_DIR / f"{tmdb_id}_narration.mp3" # Eleven devuelve MP3 por defecto
-            with open(final_wav, "wb") as f:
+            temp_wav = NARRATION_DIR / f"{tmdb_id}_raw.mp3"
+            final_wav = NARRATION_DIR / f"{tmdb_id}_narration.mp3"
+            
+            with open(temp_wav, "wb") as f:
                 f.write(response.content)
             
-            logging.info(f"✅ Audio generado con ElevenLabs: {final_wav}")
+            # ACELERACIÓN 1.1x con FFmpeg (mantiene el tono original)
+            try:
+                logging.info("🚀 Acelerando narración a 1.1x...")
+                cmd = [
+                    'ffmpeg', '-y', '-i', str(temp_wav),
+                    '-filter:a', "atempo=1.1",
+                    '-vn', str(final_wav)
+                ]
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if temp_wav.exists(): temp_wav.unlink() # Borramos el original lento
+                logging.info(f"✅ Audio generado y acelerado: {final_wav}")
+            except Exception as e:
+                logging.warning(f"⚠️ Falló aceleración FFmpeg, usando audio original: {e}")
+                temp_wav.rename(final_wav)
+
             return final_wav
         else:
             logging.error(f"❌ Error ElevenLabs ({response.status_code}): {response.text}")

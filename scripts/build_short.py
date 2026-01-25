@@ -61,8 +61,11 @@ def resize_to_9_16(clip: VideoFileClip, fps: float = 30) -> VideoFileClip:
     """
     logging.info(f"Dimensiones originales del clip: {clip.size[0]}x{clip.size[1]}")
     
+    # Aseguramos que el ancho del recorte no sea mayor que el ancho real del vídeo
+    crop_width = min(clip.w, clip.h)
+    
     # v2 FIX: Usa .cropped() en lugar de .crop()
-    square_clip_intermediate = clip.cropped(x_center=clip.w / 2, width=clip.h)
+    square_clip_intermediate = clip.cropped(x_center=clip.w / 2, width=crop_width)
     square_clip = square_clip_intermediate.resized((SQUARE_SIZE, SQUARE_SIZE))
 
     logging.info(f"Dimensiones tras recorte y reescalado a cuadrado: {square_clip.size[0]}x{square_clip.size[1]}")

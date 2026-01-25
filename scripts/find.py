@@ -58,11 +58,11 @@ def find_and_select_next():
         # Consolidamos en 2 búsquedas potentes (Total cuota: 200 unidades)
         queries = [
             "official movie trailer 2025 2026", # General estrenos cine
-            "netflix disney hbo prime apple movie trailer" # General streaming
+            "netflix disney amazon prime apple movie trailer" # General streaming
         ]
         
-        # Reducimos el margen a 7 días para ser más específicos con la "novedad"
-        start_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        # Ampliamos el margen a 15 días para capturar mejor las novedades de catálogo y trailers mensuales
+        start_date = (datetime.now(timezone.utc) - timedelta(days=15)).strftime('%Y-%m-%dT%H:%M:%SZ')
         logging.info(f"📡 Buscando novedades desde {start_date} (Modo Ahorro Cuota)...")
         
         all_items = []
@@ -135,8 +135,13 @@ def find_and_select_next():
         
         logging.info(f"🤖 Enviando {len(top_candidates)} títulos a Gemini...")
         
-        prompt = f"""Analiza estos vídeos. Extrae solo PELÍCULAS (Feature Films) que sean estrenos recientes o próximos.
-        EXCLUYE: Series, TV Shows.
+        prompt = f"""Analiza estos vídeos de YouTube (trailers, novedades). 
+        Extrae PELÍCULAS (Feature Films) que cumplan UNA de estas condiciones:
+        1. Son estrenos recientes o próximos (2025-2026).
+        2. Son películas relativamente RECIENTES (años 2024-2025) que ACABAN DE LLEGAR o van a llegar este mes a Netflix, Disney+ o Amazon Prime Video.
+        
+        EXCLUYE: Series, documentales, películas antiguas (anteriores a 2024) y contenido de HBO/Max, Apple TV o SkyShowtime.
+        
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""
         
@@ -203,10 +208,19 @@ def find_and_select_next():
         if not cand_year:
             cand_year = datetime.now().year
         
-        target_years = [str(int(cand_year)-1), str(int(cand_year)), str(int(cand_year)+1)]
-        if tmdb_year not in target_years: 
-            logging.info(f"   [x] Descartado '{movie_name}': Año incorrecto ({tmdb_year} vs {target_years})")
-            continue
+        is_streaming_ia = cand.get('plataforma', 'Cine') not in ['Cine', 'Teatros', 'None', None]
+        
+        # Filtro de año: Estricto para cine, y ventana de 2 años para streaming (catálogo reciente)
+        min_year = int(datetime.now().year) - 2 # Permitimos hasta 2024 si estamos en 2026
+        if not is_streaming_ia:
+            target_years = [str(int(cand_year)-1), str(int(cand_year)), str(int(cand_year)+1)]
+            if tmdb_year not in target_years: 
+                logging.info(f"   [x] Descartado '{movie_name}': Año incorrecto para estreno cine ({tmdb_year} vs {target_years})")
+                continue
+        else:
+            if int(tmdb_year) < min_year:
+                logging.info(f"   [x] Descartado '{movie_name}': Catálogo demasiado antiguo ({tmdb_year} < {min_year})")
+                continue
         
         orig_lang = tmdb_movie.get("original_language", "en")
         if orig_lang in excluded_langs:
@@ -228,7 +242,8 @@ def find_and_select_next():
                 is_streaming = True
                 data['ia_platform_from_title'] = ia_plat if ia_plat != 'Cine' else "Streaming"
 
-            days_limit = 365 if is_streaming else 60
+            # Si es streaming de las plataformas TOP, permitimos hasta 2 años de antigüedad (catálogo reciente)
+            days_limit = 730 if is_streaming else 60
             
             if data.get('fecha_estreno'):
                 try:
@@ -279,9 +294,8 @@ def find_and_select_next():
 
     enriched.sort(key=calculate_score, reverse=True)
     selected = enriched[0]
-    # Guardar el score calculado para posterior visualización
-    final_score = calculate_score(selected)
-    selected['score'] = final_score
+    # Usar el score ya calculado para evitar log duplicado
+    final_score = selected['score']
 
     # --- DEEP RESEARCH ---
     logging.info(f"🕵️  Deep Research para: {selected['titulo']}...")
