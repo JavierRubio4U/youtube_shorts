@@ -4,7 +4,7 @@ Welcome to the **YouTube Shorts Generator Project**! This repository showcases a
 
 ## Project Overview
 
-This project automates the creation of YouTube Shorts by fetching movie data, generating narrated videos, and preparing them for upload. It leverages APIs (like TMDb), AI (Gemini for strategy and script, Google Neural2 for voice synthesis), and video editing libraries (MoviePy) to produce polished 1080x1920 videos with dynamic content.
+This project automates the creation of YouTube Shorts by fetching movie data, generating narrated videos, and preparing them for upload. It leverages APIs (like TMDb), AI (Gemini for strategy and script, ElevenLabs for high-quality voice synthesis), and video editing libraries (MoviePy) to produce polished 1080x1920 (or up to 4K) videos with dynamic content.
 
 ## ⚠️ Important: Environment Setup
 
@@ -45,7 +45,8 @@ C:\Users\carth\code\youtube_shorts\venv\Scripts\python.exe scripts/publish.py
 
 3. **Configure APIs**:
    - **`config/` folder**:
-     - `google_api_key.txt`: Your key for Gemini (AI) and Google TTS (Voice).
+     - `google_api_key.txt`: Your key for Gemini (AI).
+     - `elevenlabs_api_key.txt`: Your key for ElevenLabs (Voice).
      - `tmdb_api_key.txt`: Your key for movie data.
      - `client_secret.json`: (Optional) YouTube API credentials for uploading.
 
@@ -95,18 +96,18 @@ Run this to see what movie the system would pick and what gossip/hook it finds, 
     python scripts/find.py
     ```
 * **Result:**
-    * Generates state file: `output/state/next_release.json`.
+    * Generates state file: `assets/tmp/next_release.json`.
     * Prints "Gossip Sheet" to console: Chosen strategy, Curiosity, Actor reference, etc.
 
-#### D. Test Voice & Narration (`test_google_voice.py`)
-Generates a test audio with the current synopsis to verify Google API works and the rhythm (SSML) is correct.
+#### D. Test Narration (`ai_narration.py`)
+Generates a test audio using Gemini for the script and ElevenLabs for the voice.
 
 * **Command:**
     ```powershell
-    python test/test_google_voice.py
+    python scripts/ai_narration.py
     ```
 * **Result:**
-    * Creates an MP3 file in `output/`.
+    * Creates a `.wav` file in `assets/narration/`.
 
 #### E. Regenerate Video Only (`build_short.py`)
 If you already have the movie downloaded (in `next_release.json`) but want to change the edit, music, or script without re-searching.
@@ -130,18 +131,22 @@ Queries Google API to see which Gemini models are active with your current key.
     - `publish.py`: Main automatic pipeline.
     - `manual_publish.py`: Main manual pipeline.
     - `find.py`: Movie selection and Deep Research logic.
-    - `ai_narration.py`: AI personality, word limits, and SSML control.
-    - `movie_utils.py`: The "researcher brain". Contains the Deep Research prompt.
-    - `build_short.py`: Video assembler.
-- **`config/`**: API keys (`google_api_key.txt`, `tmdb_api_key.txt`).
-- **`output/state/next_release.json`**: Temporary file with current movie info.
+    - `ai_narration.py`: AI personality (Sinóptica Gamberra), word limits, and ElevenLabs integration.
+    - `movie_utils.py`: The "researcher brain". Contains the Deep Research prompt and state management.
+    - `build_short.py`: Video assembler (MoviePy).
+- **`config/`**: API keys (`google_api_key.txt`, `tmdb_api_key.txt`, `elevenlabs_api_key.txt`).
+- **`assets/tmp/next_release.json`**: Temporary file with current movie selection.
+- **`output/state/`**:
+    - `published.json`: List of published TMDB IDs to avoid duplicates.
+    - `historic.json`: Detailed log of all successful releases (scores, strategies, titles).
+    - `youtube_token.json`: OAuth2 credentials for YouTube.
 
 ## ⚠️ Troubleshooting
 
-1.  **Error `403 PERMISSION_DENIED` (Google TTS):**
-    * Your API Key lacks voice permission. Go to Google Cloud Console > Credentials > Restrictions and enable **"Cloud Text-to-Speech API"**.
-2.  **Video uploads but not as a Short:**
-    * Verify duration is under 60 seconds. The script chops the script to ensure 30-40 seconds, so this shouldn't happen.
+1.  **Error `quotaExceeded` (YouTube API):**
+    * YouTube has a daily quota for searches. If you exceed it, the script will fail until the quota resets (usually at midnight Pacific Time / 09:00 AM Spain).
+2.  **Audio cuts off or Video has black frames:**
+    * The script now uses `method="chain"` in MoviePy to avoid black frames between clips. Ensure the script length (word count) is balanced with the video duration (approx. 28-35s).
 
 ## ⏰ Automatización Diaria (Windows Task Scheduler)
 

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "config"
 STATE_DIR = ROOT / "output" / "state"
 PUBLISHED_FILE = STATE_DIR / "published.json"
+HISTORIC_FILE = STATE_DIR / "historic.json"
 
 # --- Configuración de APIs y Constantes ---
 def load_config():
@@ -77,18 +78,34 @@ def _save_state(state):
     except Exception as e:
         logging.error(f"Error al guardar estado: {e}")
 
-def mark_published(tmdb_id: int, trailer_url: str, title: str):
+def mark_published(selection_data: dict, short_id: str):
     state = _load_state()
     timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    
+    # Extraer todos los datos relevantes de la selección
+    tmdb_id = selection_data.get("tmdb_id")
+    title = selection_data.get("titulo", "N/A")
+
     new_entry = {
-        "id": tmdb_id,
-        "title": title,
-        "timestamp": timestamp,
-        "trailer_url": trailer_url
+      "id": tmdb_id,
+      "title": title,
+      "timestamp": timestamp,
+      "trailer_url": selection_data.get("trailer_url"),
+      "score": selection_data.get("score"),
+      "trailer_views_at_selection": selection_data.get("views"),
+      "trailer_fps": selection_data.get("trailer_fps"),
+      "strategy": selection_data.get("hook_angle"),
+      "movie_release_date": selection_data.get("fecha_estreno"),
+      "short_id": short_id,
+      "short_views": 0,
+      "short_likes": 0,
+      "short_comments": 0
     }
+
     if not any(pub.get("id") == tmdb_id for pub in state["published_ids"]):
         state["published_ids"].append(new_entry)
         _save_state(state)
+        _save_to_historic(new_entry)
         logging.info(f"✅ Película marcada como publicada: {title} (ID: {tmdb_id})")
     else:
         logging.warning(f"Ya publicada: {title} (ID: {tmdb_id})")
@@ -202,24 +219,19 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str)
         Investiga la película '{title}' ({year}). 
         Tu objetivo es decidir CÓMO venderla en un video corto de humor ácido/salseo.
         
-        1. **Curiosidad/Salseo:** Algo impactante (presupuesto, peleas, anécdotas, marketing loco).
-        2. **Actor Principal:** ({main_actor}) ¿Tiene trapos sucios, es una leyenda o un meme?
-        3. **Director:** ¿Es famoso o tiene un estilo raro?
+        1. **Curiosidad/Salseo:** Algo impactante y EXPLICADO (si mencionas un dato técnico o de la carrera del actor, aclara por qué es importante para alguien que no sepa de cine).
+        2. **Actor Principal:** ({main_actor}) ¿Qué hace aquí que sea distinto a sus papeles famosos?
+        3. **Director:** ¿Qué podemos esperar de su estilo?
         
         DECISIÓN FINAL: ¿Cuál es el gancho más fuerte para empezar el vídeo?
-        Elige UNO: 
-        - 'ACTOR' (Si el actor es lo más interesante).
-        - 'DIRECTOR' (Si es alguien de culto).
-        - 'CURIOSITY' (Si el dato de producción es lo más fuerte).
-        - 'PLOT' (Si la trama es tan absurda que se vende sola).
         
         IMPORTANTE: Responde SÓLO con un JSON válido.
         Formato JSON:
         {{
-            "synopsis": "Sinopsis gamberra de la trama (máx 2 líneas)",
-            "actor_reference": "Dato corto ácido sobre el actor",
-            "director": "Nombre y estilo",
-            "movie_curiosity": "El dato impactante/salseo",
+            "synopsis": "Sinopsis gamberra pero informativa de la trama (qué pasa realmente)",
+            "actor_reference": "Dato curioso sobre el actor explicado para todos los públicos",
+            "director": "Nombre y por qué deberías conocerlo",
+            "movie_curiosity": "El dato impactante/salseo bien contextualizado",
             "hook_angle": "ACTOR" | "DIRECTOR" | "CURIOSITY" | "PLOT",
             "platform": "Cine o plataforma streaming (estimada)"
         }}
@@ -248,3 +260,22 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str)
             "hook_angle": "PLOT",
             "platform": "Cine"
         }
+
+def _save_to_historic(entry):
+    """Guarda la entrada en el fichero histórico (acumulativo, nunca se borra)."""
+    historic_data = []
+    if HISTORIC_FILE.exists():
+        try:
+            content = HISTORIC_FILE.read_text(encoding="utf-8")
+            if content:
+                historic_data = json.loads(content)
+        except Exception as e:
+            logging.error(f"Error al leer historic.json: {e}")
+    
+    historic_data.append(entry)
+    
+    try:
+        HISTORIC_FILE.write_text(json.dumps(historic_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        logging.info(f"📈 Registro añadido al histórico.")
+    except Exception as e:
+        logging.error(f"Error al guardar en historic.json: {e}")

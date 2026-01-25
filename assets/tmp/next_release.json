@@ -1,0 +1,35 @@
+{
+  "tmdb_id": 1381027,
+  "titulo": "The Good Boy",
+  "fecha_estreno": "2026-03-06",
+  "generos": [
+    "Suspense",
+    "Drama",
+    "Misterio"
+  ],
+  "sinopsis": "Stephen Graham decide secuestrar a un niño pensando que es dinero fácil, pero el crío resulta ser un psicópata en potencia que convierte la vida de su captor en un infierno. Básicamente es 'Solo en Casa' versión pesadilla para adultos, donde el secuestrador acaba rezando para que lo liberen.",
+  "actors": [
+    "Stephen Graham",
+    "Andrea Riseborough",
+    "Anson Boon"
+  ],
+  "poster_principal": "https://image.tmdb.org/t/p/w500/b3lnPhLbkk37fYFtQy1gGixd8Jz.jpg",
+  "has_poster": true,
+  "platforms": {
+    "streaming": []
+  },
+  "has_streaming": false,
+  "trailer_url": "https://www.youtube.com/watch?v=4lROn_sWj7s",
+  "views": 47866,
+  "upload_date": "2026-01-20T13:30:00Z",
+  "needs_web": true,
+  "score": 47866,
+  "ia_platform_from_title": "Cine",
+  "actor_reference": "Estamos acostumbrados a ver a Stephen Graham siendo el tipo más intimidante del barrio (Al Capone en 'Boardwalk Empire' o el skinhead violento de 'This is England'). Aquí la gracia es ver a ese 'hombre duro' cagado de miedo y humillado por un niño. El morbo de ver al bully siendo la víctima.",
+  "director": "Jan Kounen. Si no te suena, es el francés loco que dirigió 'Dobermann'. Su estilo no es sutil: es como meterse dos bebidas energéticas y un ácido. Espera cámaras mareantes, violencia muy gráfica y un ritmo visual que te va a dejar agotado.",
+  "movie_curiosity": "La película junta a Graham con Andrea Riseborough (la madre del niño), lo que sugiere que no es solo un thriller, sino un duelo de actuaciones intensas en un entorno claustrofóbico. El verdadero 'salseo' es que se vende como comedia negra: nos vamos a reír de lo mal que lo pasa Stephen.",
+  "hook_angle": "ACTOR",
+  "seleccion_generada": "2026-01-25T01:01:26.269143+00:00Z",
+  "trailer_fps": 24.0,
+  "guion_generado": "Tiene guasa ver a Stephen Graham, el chungo de *This is England*, cagao de miedo por un renacuajo. Lo secuestra por la pasta, pero el niño es un psicópata que le monta un *Solo en Casa* infernal. El pobre delincuente acaba rezando pa' que lo suelten a él; vaya ojo clínico pa' elegir víctima, mi alma."
+}

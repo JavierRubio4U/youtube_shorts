@@ -24,7 +24,9 @@ from movie_utils import (
 ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / "output" / "state"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
-NEXT_FILE = STATE_DIR / "next_release.json"
+TMP_DIR = ROOT / "assets" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+NEXT_FILE = TMP_DIR / "next_release.json"
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -51,41 +53,34 @@ def find_and_select_next():
         logging.error(f"Error auth YouTube: {e}")
         return None
 
-    # --- Paso 1: YouTube Search ---
+    # --- Paso 1: YouTube Search (Optimizado para ahorrar cuota) ---
     try:
-        current_year = datetime.now().year
+        # Consolidamos en 2 búsquedas potentes (Total cuota: 200 unidades)
         queries = [
-            "official movie trailer new this week",
-            "netflix official movie trailer",
-            "prime video official movie trailer",
-            "disney plus official movie trailer",
-            "max hbo official movie trailer",
-            "apple tv official movie trailer"
+            "official movie trailer 2025 2026", # General estrenos cine
+            "netflix disney hbo prime apple movie trailer" # General streaming
         ]
         
-        start_date = (datetime.now(timezone.utc) - timedelta(days=14)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        logging.info(f"📡 Buscando estrenos y novedades streaming desde {start_date}...")
+        # Reducimos el margen a 7 días para ser más específicos con la "novedad"
+        start_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        logging.info(f"📡 Buscando novedades desde {start_date} (Modo Ahorro Cuota)...")
         
         all_items = []
         seen_ids = set()
 
         for q in queries:
             logging.info(f"   > Consultando: '{q}'...")
-            next_page = None
-            for i in range(2): 
-                req = youtube.search().list(part="id,snippet", q=q, type="video", maxResults=50, 
-                                            order="relevance", pageToken=next_page, publishedAfter=start_date)
-                resp = req.execute()
-                items = resp.get("items", [])
-                
-                for item in items:
-                    vid = item['id']['videoId']
-                    if vid not in seen_ids:
-                        seen_ids.add(vid)
-                        all_items.append(item)
-                
-                next_page = resp.get('nextPageToken')
-                if not next_page: break
+            # Hacemos solo 1 petición por query (maxResults=50)
+            req = youtube.search().list(part="id,snippet", q=q, type="video", maxResults=50, 
+                                        order="relevance", publishedAfter=start_date)
+            resp = req.execute()
+            items = resp.get("items", [])
+            
+            for item in items:
+                vid = item['id']['videoId']
+                if vid not in seen_ids:
+                    seen_ids.add(vid)
+                    all_items.append(item)
         
         logging.info(f"📥 Total vídeos únicos encontrados: {len(all_items)}")
 
@@ -204,8 +199,11 @@ def find_and_select_next():
         tmdb_movie = res["results"][0]
         tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
         
-        cand_year = cand.get('año', datetime.now().year)
-        target_years = [str(cand_year-1), str(cand_year), str(cand_year+1)]
+        cand_year = cand.get('año')
+        if not cand_year:
+            cand_year = datetime.now().year
+        
+        target_years = [str(int(cand_year)-1), str(int(cand_year)), str(int(cand_year)+1)]
         if tmdb_year not in target_years: 
             logging.info(f"   [x] Descartado '{movie_name}': Año incorrecto ({tmdb_year} vs {target_years})")
             continue
@@ -272,12 +270,18 @@ def find_and_select_next():
             pub_time = datetime.strptime(item['upload_date'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
             hours_ago = (datetime.now(timezone.utc) - pub_time).total_seconds() / 3600
             recency_bonus = 5 if hours_ago < 24 else 1
-            return views * recency_bonus
+            score = views * recency_bonus
+            logging.info(f"   [SCORE] {item.get('titulo', 'N/A')}: {views:,} views × {recency_bonus} bonus = {score:,}")
+            return score
         except:
+            logging.info(f"   [SCORE] {item.get('titulo', 'N/A')}: {views:,} views (sin recency bonus)")
             return views
 
     enriched.sort(key=calculate_score, reverse=True)
     selected = enriched[0]
+    # Guardar el score calculado para posterior visualización
+    final_score = calculate_score(selected)
+    selected['score'] = final_score
 
     # --- DEEP RESEARCH ---
     logging.info(f"🕵️  Deep Research para: {selected['titulo']}...")
@@ -301,16 +305,9 @@ def find_and_select_next():
         selected['sinopsis'] = get_synopsis_chain(selected['titulo'], selected['año'], selected['tmdb_id'])
         selected['hook_angle'] = 'PLOT'
 
-    # --- RESUMEN FINAL ---
-    logging.info("\n" + "═"*60)
-    logging.info(f"🎬 RESUMEN DE SELECCIÓN: {selected['titulo']} ({selected['fecha_estreno'][:4]})")
-    logging.info(f"🔗 Trailer: {selected.get('trailer_url', 'N/A')}")
-    logging.info(f"🧠 Estrategia: {selected.get('hook_angle', 'N/A')}")
-    logging.info("═"*60 + "\n")
-
     payload = {**selected, "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"}
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    logging.info(f"✅ SELECCIONADA: {selected['titulo']}")
+    logging.info(f"✅ SELECCIONADA: {selected['titulo']} (Score: {int(selected.get('score', 0)):,})")
     return payload
 
 if __name__ == "__main__":

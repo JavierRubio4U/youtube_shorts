@@ -12,7 +12,9 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / "output" / "state"
-NEXT_FILE = STATE_DIR / "next_release.json"
+TMP_DIR = ROOT / "assets" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+NEXT_FILE = TMP_DIR / "next_release.json"
 
 ASSETS_DIR = ROOT / "assets"
 POSTERS_DIR = ASSETS_DIR / "posters"

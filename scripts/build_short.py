@@ -24,18 +24,21 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 SHORTS_DIR = ROOT / "output" / "shorts"
 MANIFEST = STATE / "assets_manifest.json"
-SEL_FILE = STATE / "next_release.json"
+TMP_DIR = ROOT / "assets" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+SEL_FILE = TMP_DIR / "next_release.json"
 
 W, H = 2160, 3840  # Volvemos a resolución alta para mejor calidad (como en versión antigua)
 SQUARE_SIZE = 2160
 INTRO_DURATION = 4
 CLIP_DURATION = 6
 MAX_CLIPS_TO_USE = 4  # Renombrado de MAX_BACKDROPS para claridad
+FPS_TARGET = 30 # Estándar para evitar cuelgues y asegurar compatibilidad
 
-def clip_from_img(path: Path, dur: float) -> ImageClip:
+def clip_from_img(path: Path, dur: float, fps: float = FPS_TARGET) -> ImageClip:
     """Crea un clip de video a partir de una imagen con duración dada."""
     try:
-        img_clip = ImageClip(str(path), duration=dur)
+        img_clip = ImageClip(str(path), duration=dur).with_fps(fps)
         img_w, img_h = img_clip.size
         target_ratio = W / H
         current_ratio = img_w / img_h
@@ -52,7 +55,7 @@ def clip_from_img(path: Path, dur: float) -> ImageClip:
         logging.error(f"Error al cargar imagen {path}: {e}")
         return None
 
-def resize_to_9_16(clip: VideoFileClip) -> VideoFileClip:
+def resize_to_9_16(clip: VideoFileClip, fps: float = 30) -> VideoFileClip:
     """
     Recorta el centro del clip a un formato cuadrado y lo coloca en un fondo vertical 9:16.
     """
@@ -64,12 +67,12 @@ def resize_to_9_16(clip: VideoFileClip) -> VideoFileClip:
 
     logging.info(f"Dimensiones tras recorte y reescalado a cuadrado: {square_clip.size[0]}x{square_clip.size[1]}")
     
-    background = ColorClip(size=(W, H), color=(0, 0, 0), duration=clip.duration)
+    background = ColorClip(size=(W, H), color=(0, 0, 0), duration=clip.duration).with_fps(fps)
 
     final_clip = CompositeVideoClip([
         background,
         square_clip.with_position("center")
-    ])
+    ]).with_duration(clip.duration).with_fps(fps)
 
     return final_clip
 
@@ -87,6 +90,8 @@ def main():
 
     poster_path = ROOT / man.get("poster", "")
     video_clips_paths = [ROOT / p for p in man.get("video_clips", []) if (ROOT / p).exists()]
+    # Usamos un estándar de 30 FPS para evitar problemas de sincronización y cuelgues
+    trailer_fps = FPS_TARGET 
 
     if not poster_path.exists():
         logging.error("No se encontró el archivo del póster principal.")
@@ -96,22 +101,18 @@ def main():
         logging.error("No hay clips de video disponibles.")
         return None
 
-    # --- MOSTRAR INFORMACIÓN DE LA PELÍCULA ---
-    logging.info("\n" + "═"*60)
-    logging.info(f"🎬 INFORMACIÓN DE LA PELÍCULA: {title}")
-    logging.info(f"⏳ HORA INICIO RENDER: {datetime.now().strftime('%H:%M:%S')}") # <--- 3. AÑADE ESTO
-    logging.info(f"📅 Año: {sel.get('fecha_estreno', 'N/A')[:4]}")
-    logging.info(f"🧠 Estrategia: {sel.get('hook_angle', 'N/A')}")
-    logging.info(f"🤫 Salseo: {sel.get('movie_curiosity', 'N/A')}")
-    logging.info(f"📝 Sinopsis: {sel.get('sinopsis', 'N/A')}")
-    logging.info("═"*60 + "\n")
-    # ------------------------------------------
+    # Información mostrada detalladamente en ai_narration.py (PRE-RENDER)
 
     # CAMBIO: Llamamos directamente a la función main de nuestro script de narración con Gemini.
     narracion, voice_path = ai_narration.main()
     if not voice_path or not os.path.exists(voice_path):
         logging.error("No se pudo obtener narración.")
         return None
+
+    # Guardar el guión en el JSON para poder mostrarlo después
+    if narracion:
+        sel['guion_generado'] = narracion
+        SEL_FILE.write_text(json.dumps(sel, ensure_ascii=False, indent=2), encoding="utf-8")
 
     tmp_base = ROOT / 'temp'
     tmp_base.mkdir(exist_ok=True)
@@ -121,7 +122,7 @@ def main():
     
     try:
         logging.info(f"Creando clip de introducción de {INTRO_DURATION}s con el póster...")
-        intro_clip = clip_from_img(poster_path, INTRO_DURATION)
+        intro_clip = clip_from_img(poster_path, INTRO_DURATION, fps=trailer_fps)
         if intro_clip is None:
             logging.error("Fallo al crear el clip de introducción.")
             return None
@@ -130,15 +131,15 @@ def main():
         video_clips_resized = []
         for i, clip_path in enumerate(video_clips_paths[:MAX_CLIPS_TO_USE]):
             try:
-                clip = VideoFileClip(str(clip_path))
+                clip = VideoFileClip(str(clip_path)).with_fps(trailer_fps)
                 opened_video_clips.append(clip)
                 
-                # v2 FIX: Usa .subclipped() para consistencia
+                # VOLVEMOS A DURACIÓN FIJA
                 end_time = min(CLIP_DURATION, clip.duration)
                 sub_clip = clip.subclipped(0, end_time)
                 
                 logging.info(f"  - Clip {i+1}: Redimensionando a 9:16... (duración: {sub_clip.duration:.2f}s)")
-                resized_clip = resize_to_9_16(sub_clip)
+                resized_clip = resize_to_9_16(sub_clip, fps=trailer_fps)
                 video_clips_resized.append(resized_clip)
             except Exception as e:
                 logging.warning(f"Fallo en clip {clip_path}: {e}")
@@ -148,16 +149,14 @@ def main():
             return None
 
         logging.info("Concatenando clips de vídeo para la secuencia final...")
-        final_video = concatenate_videoclips([intro_clip] + video_clips_resized, method="compose")
+        # CAMBIO: Usamos method="chain" para evitar frames negros entre clips
+        final_video = concatenate_videoclips([intro_clip] + video_clips_resized, method="chain")
 
         logging.info("Preparando pista de audio...")
-        #audio_clip = AudioFileClip(str(voice_path))
-        #final_audio = audio_clip
-        # --- CAMBIO: Añadir guarda de silencio de 0.5s ---
         raw_voice = AudioFileClip(str(voice_path))
-        silence_padding = AudioClip(lambda t: [0, 0], duration=0.5, fps=44100)
+        
+        silence_padding = AudioClip(lambda t: [0, 0], duration=1.0, fps=44100)
         audio_clip = concatenate_audioclips([silence_padding, raw_voice])
-        # -------------------------------------------------
         
         final_audio = audio_clip
 
@@ -188,10 +187,6 @@ def main():
                     ])
                     final_audio = CompositeAudioClip([audio_clip, music_clip])
                     
-                    # v2 FIX: Usa .subclipped()
-                    if final_audio.duration > final_video.duration:
-                        final_audio = final_audio.subclipped(0, final_video.duration)
-                    
                     logging.info(f"Música de fondo aleatoria añadida desde {music_path.name}.")
                 except Exception as e:
                     logging.warning(f"No se pudo añadir música desde {music_path}: {e}")
@@ -208,24 +203,8 @@ def main():
 
         out_file = SHORTS_DIR / f"{tmdb_id}_{slug}_final.mp4"
 
-        # --- PREVIEW GENERATION ---
-        try:
-            preview_file = SHORTS_DIR / f"{tmdb_id}_{slug}_preview.mp4"
-            logging.info(f"Generando vista previa rápida en '{preview_file.name}'...")
-            # Reducir resolución para velocidad (540px ancho)
-            preview_clip = final_clip.resized(width=540)
-            preview_clip.write_videofile(
-                str(preview_file),
-                codec="libx264",
-                fps=24,
-                preset="ultrafast",
-                ffmpeg_params=["-crf", "35"],
-                logger=None
-            )
-            logging.info(f"✅ Vista previa generada: {preview_file}")
-        except Exception as e:
-            logging.warning(f"No se pudo generar vista previa: {e}")
-        # --------------------------
+        # --- PREVIEW GENERATION REMOVED ---
+        logging.info("ℹ️ Vista previa rápida omitida.")
         
         # Define una ruta para el audio temporal dentro de tmp_dir
         temp_audio_path = tmp_dir / "temp_audio_mix.mp3" 
@@ -234,12 +213,11 @@ def main():
         final_clip.write_videofile(
             str(out_file),
             codec="libx264",
-            fps=60,
-            preset="fast",
-            bitrate="50000k",
-            ffmpeg_params=["-crf", "18", "-movflags", "faststart"],
-            logger=None,
-            # AÑADE ESTAS DOS LÍNEAS:
+            fps=trailer_fps,
+            preset="medium", # Cambiado de fast a medium para mejor balance
+            bitrate="20000k", # Reducido de 50000k (excesivo para Shorts)
+            ffmpeg_params=["-crf", "20", "-movflags", "faststart"], # CRF 20 es suficiente
+            # Quitamos logger=None para que se vea el progreso en consola
             temp_audiofile=str(temp_audio_path), 
             remove_temp=True 
         )

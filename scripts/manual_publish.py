@@ -16,7 +16,9 @@ from google.auth.transport.requests import Request
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 STATE_DIR = ROOT / "output" / "state"
-NEXT_FILE = STATE_DIR / "next_release.json"
+TMP_DIR = ROOT / "assets" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+NEXT_FILE = TMP_DIR / "next_release.json"
 
 # Añadimos scripts al path para importar módulos
 if str(SCRIPTS) not in sys.path:
@@ -138,6 +140,7 @@ def main():
     # Añadimos datos extra necesarios
     data['upload_date'] = upload_date
     data['views'] = 0 # Dummy value, es manual
+    data['score'] = 0 # Valor manual
     data['ia_platform_from_title'] = "Cine" # Default
 
     # 5. DEEP RESEARCH (El Editor IA)
@@ -195,7 +198,7 @@ def main():
             
             if video_id:
                 logging.info(f"🎉 ¡SUBIDO! https://youtu.be/{video_id}")
-                movie_utils.mark_published(data["tmdb_id"], trailer_url, data["titulo"])
+                movie_utils.mark_published(data, video_id)
                 cleanup_temp.cleanup_on_end()
             else:
                 logging.error("❌ Fallo en la subida.")

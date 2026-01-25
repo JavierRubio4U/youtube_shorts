@@ -85,6 +85,14 @@ def main():
         logging.info("▶ Paso 4: Generando VIDEO SHORT...")
         mp4_path = build_short.main() # build_short invoca la nueva narración
 
+        # Recargar sel desde disco para capturar cambios (como trailer_fps) realizados por otros scripts
+        try:
+            TMP_DIR = ROOT / "assets" / "tmp"
+            SEL_FILE = TMP_DIR / "next_release.json"
+            if SEL_FILE.exists():
+                sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
+        except: pass
+
         video_id = None
         if mp4_path:
             # --- Paso 5: Subir ---
@@ -99,7 +107,7 @@ def main():
         if video_id:
             if sel is None and last_sel: sel = last_sel
             try:
-                movie_utils.mark_published(sel.get("tmdb_id"), sel.get("trailer_url"), sel.get("titulo"))
+                movie_utils.mark_published(sel, video_id)
                 video_published = True
                 logging.info(f"✅ VIDEO PUBLICADO: https://studio.youtube.com/video/{video_id}/edit")
             except: pass
@@ -111,12 +119,35 @@ def main():
         cleanup_temp.cleanup_on_end()
         logging.info(f"🎉 Proceso completado en {(datetime.now() - start_time).seconds // 60} min.")
         
-        # Resumen limpio
+        # Resumen detallado al final
         if last_sel:
-            logging.info("\n" + "="*30)
-            logging.info(f"📼 {last_sel.get('titulo')}")
-            logging.info(f"🔗 {last_sel.get('trailer_url')}")
-            logging.info("="*30)
+            # Intentar recargar el JSON actualizado con el guion
+            try:
+                TMP_DIR = ROOT / "assets" / "tmp"
+                SEL_FILE = TMP_DIR / "next_release.json"
+                if SEL_FILE.exists():
+                    last_sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))
+            except: pass
+
+            logging.info("\n" + "="*70)
+            logging.info("🎬 RESUMEN DE LA PUBLICACIÓN:")
+            logging.info(f"   📼 Título: {last_sel.get('titulo', 'N/A')}")
+            views = last_sel.get('views', 'N/A')
+            if isinstance(views, int):
+                logging.info(f"   👀 Visitas Trailer: {views:,}")
+            else:
+                logging.info(f"   👀 Visitas Trailer: {views}")
+            score = last_sel.get('score', 'N/A')
+            if isinstance(score, (int, float)):
+                logging.info(f"   ⭐ Score: {int(score):,}")
+            else:
+                logging.info(f"   ⭐ Score: {score}")
+            logging.info(f"   🎯 Estrategia: {last_sel.get('hook_angle', 'N/A')}")
+            logging.info(f"   🔗 Trailer: {last_sel.get('trailer_url', 'N/A')}")
+            logging.info(f"   ✅ Short: https://studio.youtube.com/video/{video_id}/edit")
+            logging.info(f"\n   📝 GUIÓN FINAL:")
+            logging.info(f"   {last_sel.get('guion_generado', 'N/A')}")
+            logging.info("="*70 + "\n")
     else:
         logging.error("🚫 NO SE PUBLICÓ NADA.")
 

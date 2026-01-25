@@ -11,7 +11,9 @@ from datetime import datetime
 # --- Configuración ---
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
-SEL_FILE = STATE / "next_release.json"
+TMP_DIR = ROOT / "assets" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+SEL_FILE = TMP_DIR / "next_release.json"
 META_FILE = STATE / "youtube_metadata.json"
 CONFIG_DIR = ROOT / "config"
 

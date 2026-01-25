@@ -13,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 NARRATION_DIR = ROOT / "assets" / "narration"
 NARRATION_DIR.mkdir(parents=True, exist_ok=True)
-SEL_FILE = STATE / "next_release.json"
+TMP_DIR = ROOT / "assets" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+SEL_FILE = TMP_DIR / "next_release.json"
 
 def main():
     if not SEL_FILE.exists():

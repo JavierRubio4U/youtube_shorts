@@ -13,8 +13,9 @@ POSTERS_VERT_DIR = ASSETS_DIR / "posters_vertical"
 POSTERS_DIR = ASSETS_DIR / "posters"
 NARRATION_DIR = ASSETS_DIR / "narration"
 CLIPS_DIR = ASSETS_DIR / "video_clips"
+TMP_ASSETS_DIR = ASSETS_DIR / "tmp"
 # Si tienes otras como 'posters_vertical', añádelas aquí
-ASSET_DIRS_TO_CLEAR = [POSTERS_DIR, NARRATION_DIR, CLIPS_DIR, POSTERS_VERT_DIR]
+ASSET_DIRS_TO_CLEAR = [POSTERS_DIR, NARRATION_DIR, CLIPS_DIR, POSTERS_VERT_DIR, TMP_ASSETS_DIR]
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 

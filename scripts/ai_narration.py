@@ -11,6 +11,8 @@ from gemini_config import GEMINI_MODEL
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / "output" / "state"
+TMP_DIR = ROOT / "assets" / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
 NARRATION_DIR = ROOT / "assets" / "narration"
 NARRATION_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_DIR = ROOT / "config"
@@ -29,7 +31,7 @@ ELEVEN_VOICE_ID = "2VUqK4PEdMj16L6xTN4J"
 ELEVEN_MODEL_ID = "eleven_multilingual_v2"
 
 # --- GENERACIÓN DE GUION (GEMINI) ---
-def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_words=65) -> tuple[str, str] | None:
+def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_words=60) -> tuple[str, str] | None:
     
     # Datos
     title = sel.get("titulo")
@@ -58,21 +60,23 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=50, max_w
 
     # --- PROMPT MEJORADO ---
     prompt = f"""
-    Eres "La Sinóptica Gamberra". Crítica ácida. Voz: Español de España con acento andaluz, con carácter.
+    Eres "La Sinóptica Gamberra". Crítica ácida pero informativa. Voz: Español de España con acento andaluz, con carácter.
     
-    OBJETIVO: Guion de {min_words}-{max_words} palabras.
+    OBJETIVO: Guion de {min_words}-{max_words} palabras que cuente DE QUÉ VA la peli mientras sueltas verdades incómodas.
+    
     ESTRUCTURA OBLIGATORIA (Separada por "|"):
     
     PARTE 1: El Gancho ({hook_instruction}).
-       - Máx 15 palabras.
-       - Impacto inmediato.
+       - Máx 18 palabras. 
+       - Sé directo. Si mencionas a alguien (director, actor, etc.), aclara brevemente quién es o qué ha hecho (ej: "Gunn, el jefazo de DC" o "Milly Alcock, la de La Casa del Dragón") para que hasta mi abuela lo entienda. Evita que parezca un código secreto para cinéfilos.
     
-    PARTE 2: El Cotilleo (Trama: "{synopsis}").
-       - OBLIGATORIO: Empieza con una **muletilla de enlace** (Ej: "Resulta que...", "El caso es que...").
-       - Cuenta el conflicto principal rápido.
-       - **Termina con una PREGUNTA RETÓRICA o DESAFÍO** al espectador para que comenten (No es necesario hacerlo siempre si ves que te pasas de palabras en la narracion).
+    PARTE 2: El Meollo (Trama: "{synopsis}").
+       - Conecta el gancho con el resto de la historia de forma fluida y natural.
+       - Da detalles de la trama. Que el espectador sepa QUÉ va a ver realmente.
+       - Termina con una CONCLUSIÓN ÁCIDA: Una frase final con mucha ironía o humor sobre la peli. Usa el sarcasmo en lugar del ataque directo. Evita estructuras repetitivas.
+       - NO hagas preguntas al espectador.
     
-    OUTPUT: Texto Gancho | Texto Cotilleo
+    OUTPUT: Texto Gancho | Texto Meollo
     """
 
     try:
@@ -153,8 +157,8 @@ def _synthesize_elevenlabs(hook: str, body: str, tmdb_id: str) -> Path | None:
         return None
 
 def main():
-    if not (STATE_DIR / "next_release.json").exists(): return None
-    sel = json.loads((STATE_DIR / "next_release.json").read_text(encoding="utf-8"))
+    if not (TMP_DIR / "next_release.json").exists(): return None
+    sel = json.loads((TMP_DIR / "next_release.json").read_text(encoding="utf-8"))
     
     # Ya no necesitamos directorio temporal para decodificar base64, 
     # pero mantenemos la estructura por si acaso.
@@ -166,6 +170,8 @@ def main():
     
     if voice_path:
         return f"{hook} {body}", voice_path
+            
+    return None, None
             
     return None, None
 
