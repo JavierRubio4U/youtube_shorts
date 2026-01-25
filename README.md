@@ -107,7 +107,7 @@ Generates a test audio using Gemini for the script and ElevenLabs for the voice.
     python scripts/ai_narration.py
     ```
 * **Result:**
-    * Creates a `.wav` file in `assets/narration/`.
+    * Creates a `.mp3` file in `assets/narration/`.
 
 #### E. Regenerate Video Only (`build_short.py`)
 If you already have the movie downloaded (in `next_release.json`) but want to change the edit, music, or script without re-searching.
@@ -132,8 +132,11 @@ Queries Google API to see which Gemini models are active with your current key.
     - `manual_publish.py`: Main manual pipeline.
     - `find.py`: Movie selection and Deep Research logic.
     - `ai_narration.py`: AI personality (Sinóptica Gamberra), word limits, and ElevenLabs integration.
+    - `extract_video_clips_from_trailer.py`: Downloads trailers and extracts high-quality clips using FFmpeg.
     - `movie_utils.py`: The "researcher brain". Contains the Deep Research prompt and state management.
+    - `build_youtube_metadata.py`: Generates optimized Titles, Descriptions and Tags using AI.
     - `build_short.py`: Video assembler (MoviePy).
+    - `gemini_config.py`: Central configuration for Gemini AI models.
 - **`config/`**: API keys (`google_api_key.txt`, `tmdb_api_key.txt`, `elevenlabs_api_key.txt`).
 - **`assets/tmp/next_release.json`**: Temporary file with current movie selection.
 - **`output/state/`**:
@@ -170,4 +173,3 @@ Haz clic derecho sobre el nombre de la tarea para ver las opciones:
     *   Pestaña **Desencadenadores (Triggers):** Aquí puedes cambiar la **hora** a la que se ejecuta (ej: cambiar de las 18:00 a las 20:00).
     *   Pestaña **Acciones (Actions):** Verifica que la ruta apunte correctamente a tu fichero `lanzar_y_log.bat`.
         *   *Nota:* Si mueves la carpeta del proyecto de sitio, **debes** actualizar la ruta aquí, o la tarea fallará.
-
