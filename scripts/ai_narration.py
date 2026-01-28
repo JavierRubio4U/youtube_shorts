@@ -69,11 +69,14 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
     
     PARTE 1: El Gancho ({hook_instruction}).
        - Máx 18 palabras. 
-       - Sé directo. Si mencionas a alguien (director, actor, etc.), aclara brevemente quién es o qué ha hecho (ej: "Gunn, el jefazo de DC" o "Milly Alcock, la de La Casa del Dragón") para que hasta mi abuela lo entienda. Evita que parezca un código secreto para cinéfilos.
+       - Sé directo. Si mencionas a alguien (director, actor, etc.), aclara brevemente quién es o qué ha hecho (ej: "Gunn, el jefazo de DC" o "Milly Alcock, la de La Casa del Dragón") para que hasta mi abuela lo entienda. 
+       - **PROHIBIDO:** No uses títulos de otras películas como metáforas o adjetivos (ej: NADA de "un Taken de mercadillo" o "un Rambo de barrio"). Si quieres comparar, describe la acción (ej: "un padre repartiendo leña").
+       - Evita anglicismos que el lector de voz (TTS) pueda pronunciar mal.
     
     PARTE 2: El Meollo (Trama: "{synopsis}").
        - Conecta el gancho con el resto de la historia de forma fluida y natural.
        - Da detalles de la trama. Que el espectador sepa QUÉ va a ver realmente.
+       - Todo debe entenderse a la primera, sin necesidad de ser un experto en cine o conocer referencias oscuras.
        - Termina con una CONCLUSIÓN ÁCIDA: Una frase final con mucha ironía o humor sobre la peli. Usa el sarcasmo en lugar del ataque directo. Evita estructuras repetitivas.
        - NO hagas preguntas al espectador.
     

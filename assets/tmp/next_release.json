@@ -1,36 +1,34 @@
 {
-  "tmdb_id": 1439587,
-  "titulo": "Vanished",
-  "fecha_estreno": "",
+  "tmdb_id": 1189885,
+  "titulo": "The Morrigan",
+  "fecha_estreno": "2026-04-09",
   "generos": [
-    "Acción",
-    "Suspense"
+    "Terror"
   ],
-  "sinopsis": "Imagina un 'falso documental' estilo 'La Bruja de Blair', pero en lugar de brujas en el bosque, seguimos a un hipnotista de Las Vegas que es secuestrado. Es una mezcla entre thriller psicológico y un reality show que salió terriblemente mal, donde la línea entre el truco de magia y el crimen real está borrosísima.",
+  "sinopsis": "Típica historia de 'pareja con problemas se muda a una casa en medio de la nada en Irlanda para arreglarse', pero en vez de terapia, les sale la diosa celta de la muerte. Es como si 'Historia de un Matrimonio' se diera de bruces con una película de terror folk.",
   "actors": [
-    "Randy Charach",
-    "Richard Grieco",
-    "Quinton 'Rampage' Jackson"
+    "Toby Stephens",
+    "Saffron Burrows",
+    "James Cosmo"
   ],
-  "poster_principal": "https://image.tmdb.org/t/p/w500/oOSpV8dEKyHxvbMFUvFTZUuo7c2.jpg",
+  "poster_principal": "https://image.tmdb.org/t/p/w500/ahnhXyjd26ducr4V05hDAzLPyB5.jpg",
   "has_poster": true,
   "platforms": {
-    "streaming": [
-      "Bloodstream (US)"
-    ]
+    "streaming": []
   },
-  "has_streaming": true,
-  "trailer_url": "https://www.youtube.com/watch?v=4Bw3hVi6onQ",
-  "views": 102326,
-  "upload_date": "2026-01-13T17:25:36Z",
+  "has_streaming": false,
+  "trailer_url": "https://www.youtube.com/watch?v=WZ9g3GP24BM",
+  "views": 65554,
+  "upload_date": "2026-01-22T21:50:05Z",
   "needs_web": true,
-  "score": 102326,
-  "ia_platform_from_title": "VOD (Amazon Prime Video / Tubi)",
-  "actor_reference": "Randy Charach. ¿No te suena? Normal. No es un actor de método; es un mentalista y gurú del marketing millonario en la vida real. Aquí hace de sí mismo. El salseo es que básicamente se montó su propia película para ser el protagonista, el colmo del 'vanity project' (pagarte tu propia fiesta para ser el rey).",
-  "director": "Michael Adante. Un director de cine indie experto en thrillers de bajo presupuesto. Su estilo es 'cámara en mano' y tensión barata, ideal para ocultar que no hay dinero para efectos especiales.",
-  "movie_curiosity": "La película juega tan fuerte la carta del 'falso documental' que utiliza la carrera real de Charach como hipnotista para hacerte dudar. Es el clickbait hecho cine: te venden una desaparición 'real' usando a un tipo que se dedica a manipular mentes profesionalmente.",
-  "hook_angle": "CURIOSITY",
-  "seleccion_generada": "2026-01-28T06:49:14.498130+00:00Z",
+  "score": 65554,
+  "ia_platform_from_title": "Cine (Festivales) / Streaming (Probable Shudder)",
+  "actor_reference": "Toby Stephens. Para los mortales: es el Capitán Flint de 'Black Sails' o el villano de 007. El chiste es que siempre hace de tipo duro, líder y alfa que lo controla todo, y aquí le toca hacer de padre vulnerable y aterrorizado. Ver al pirata más temido de la tele cagado de miedo es un cambio de registro que da mucho morbo.",
+  "director": "Colum Eastwood. Es su debut en largometraje adaptando su propio corto. Esto es clave: en el cine de terror actual, cuando un director alarga su corto viral (como pasó con 'Smile' o 'Lights Out'), o sale una joya o un chicle estirado sin sabor. Venimos a juzgar eso.",
+  "movie_curiosity": "El verdadero salseo es mitológico: La 'Morrigan' no es un monstruo de CGI inventado, es la diosa irlandesa real de la guerra y el destino (la de los cuervos). La película usa una deidad de la muerte para explicar que no hay nada más terrorífico que un matrimonio que ya no funciona. Terror psicológico disfrazado de monstruos.",
+  "hook_angle": "ACTOR",
+  "seleccion_generada": "2026-01-28T09:27:13.001559+00:00Z",
   "trailer_fps": 24.0,
-  "guion_generado": "Escucha, utilizan la carrera de Charach, un hipnotista real, pa' venderte este *clickbait* de falso documental descarado. Secuestran a un mentalista de Las Vegas, rollo *La Bruja de Blair* pero sin bosque. Es un thriller psicológico que parece un *reality* chungo, una joyita pa’ quien no distingue un truco de magia barato de un crimen chapucero."
+  "trailer_w": 640,
+  "trailer_h": 360
 }

@@ -47,24 +47,32 @@ def slugify(text: str, maxlen: int = 60) -> str:
     s = re.sub(r"[\s_-]+", "-", s).strip("-")
     return (s or "title")[:maxlen]
 
-def get_video_fps(video_path):
-    """Obtiene los FPS de un video usando ffprobe (más rápido y estable que MoviePy para trailers 4K)."""
+def get_video_info(video_path):
+    """Obtiene FPS y resolución de un video usando ffprobe."""
     try:
         cmd = [
             'ffprobe', '-v', 'error', 
             '-select_streams', 'v:0', 
-            '-show_entries', 'stream=r_frame_rate', 
-            '-of', 'default=noprint_wrappers=1:nokey=1', 
+            '-show_entries', 'stream=r_frame_rate,width,height', 
+            '-of', 'json', 
             str(video_path)
         ]
-        output = subprocess.check_output(cmd).decode('utf-8').strip()
-        if '/' in output:
-            num, den = map(int, output.split('/'))
-            return num / den
-        return float(output)
+        output = subprocess.check_output(cmd).decode('utf-8')
+        data = json.loads(output)
+        stream = data['streams'][0]
+        
+        # FPS
+        fps_str = stream['r_frame_rate']
+        if '/' in fps_str:
+            num, den = map(int, fps_str.split('/'))
+            fps = num / den
+        else:
+            fps = float(fps_str)
+            
+        return fps, int(stream['width']), int(stream['height'])
     except Exception as e:
-        logging.warning(f"No se pudo detectar FPS con ffprobe: {e}")
-        return 30.0
+        logging.warning(f"No se pudo detectar info con ffprobe: {e}")
+        return 30.0, 1920, 1080
 
 def download_trailer(url, tmdb_id, slug):
     """Descarga el tráiler directamente a la carpeta assets/video_clips."""
@@ -73,10 +81,10 @@ def download_trailer(url, tmdb_id, slug):
     
     ydl_opts = {
         'outtmpl': str(trailer_path_template),
-        # CAMBIO: Exigir un mínimo de 1080p para la descarga de video.
-        # Si no hay 1080p, yt-dlp devolverá un error, lo cual es lo que queremos.
-        'format': 'bestvideo[height>=1080]+bestaudio/best',  
-        'format_sort': ['res', 'vcodec:vp9'], # Ordena por resolución descendente y prefiere VP9
+        # CAMBIO: Intentamos 1080p pero permitimos bajar si no existe, 
+        # para evitar el error de 403 y asegurar que descargamos ALGO.
+        'format': 'bestvideo[height<=1080]+bestaudio/best',  
+        'format_sort': ['res:1080', 'vcodec:vp9'], # Preferimos 1080p y VP9
         'prefer_free_formats': True,  # Evita formatos premium restringidos
         'merge_output_format': 'mp4',
         'no_playlist': True,
@@ -295,12 +303,14 @@ def main():
             logging.error(f"Archivo de tráiler no encontrado después de la descarga.")
             return
 
-        # Detectar FPS original de forma robusta
-        orig_fps = get_video_fps(trailer_path)
-        logging.info(f"🎞️ FPS detectados en el tráiler (ffprobe): {orig_fps:.2f}")
+        # Detectar FPS y resolución original de forma robusta
+        orig_fps, orig_w, orig_h = get_video_info(trailer_path)
+        logging.info(f"🎞️ Info tráiler: {orig_w}x{orig_h} @ {orig_fps:.2f} FPS")
 
-        # Guardar FPS en next_release para el histórico
+        # Guardar info en next_release para el histórico
         sel['trailer_fps'] = orig_fps
+        sel['trailer_w'] = orig_w
+        sel['trailer_h'] = orig_h
         SEL_FILE.write_text(json.dumps(sel, ensure_ascii=False, indent=2), encoding="utf-8")
 
         clip_paths_temp = extract_clips(trailer_path, tmpdir)
@@ -315,11 +325,13 @@ def main():
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["video_clips"] = [p for p in saved_paths if Path(ROOT / p).exists()]
-            # Guardamos también la ruta del tráiler y los FPS en el manifiesto
+            # Guardamos también la ruta del tráiler y los datos en el manifiesto
             manifest["trailer_file"] = str(trailer_path.relative_to(ROOT))
             manifest["trailer_fps"] = orig_fps
+            manifest["trailer_w"] = orig_w
+            manifest["trailer_h"] = orig_h
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-            logging.info(f"Manifiesto actualizado con clips, ruta y FPS ({orig_fps}): {manifest_path}")
+            logging.info(f"Manifiesto actualizado: {orig_w}x{orig_h} @ {orig_fps} FPS")
         else:
             logging.warning("Manifiesto no encontrado. No se actualizaron los clips.")
     except Exception as e:
