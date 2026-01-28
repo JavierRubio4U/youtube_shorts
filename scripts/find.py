@@ -279,20 +279,20 @@ def find_and_select_next():
         return None
 
     # --- Paso 5: Selección ---
-    def calculate_score(item):
+    for item in enriched:
         views = item.get('views', 0)
+        score = views
         try:
             pub_time = datetime.strptime(item['upload_date'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
             hours_ago = (datetime.now(timezone.utc) - pub_time).total_seconds() / 3600
             recency_bonus = 5 if hours_ago < 24 else 1
             score = views * recency_bonus
             logging.info(f"   [SCORE] {item.get('titulo', 'N/A')}: {views:,} views × {recency_bonus} bonus = {score:,}")
-            return score
         except:
             logging.info(f"   [SCORE] {item.get('titulo', 'N/A')}: {views:,} views (sin recency bonus)")
-            return views
+        item['score'] = score
 
-    enriched.sort(key=calculate_score, reverse=True)
+    enriched.sort(key=lambda x: x.get('score', 0), reverse=True)
     selected = enriched[0]
     # Usar el score ya calculado para evitar log duplicado
     final_score = selected['score']
