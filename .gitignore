@@ -1,6 +1,7 @@
 # --- Archivos sensibles ---
 client_secret.json
 token.json
+www.youtube.com_cookies.txt
 *.pem
 *.p12
 
@@ -11,6 +12,10 @@ marketing/
 
 # --- Outputs generados ---
 output/
+assets/
+cache/
+temp/
+logs/
 *.mp4
 *.wav
 *.mp3
