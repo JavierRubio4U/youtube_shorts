@@ -55,10 +55,14 @@ def find_and_select_next():
 
     # --- Paso 1: YouTube Search (Optimizado para ahorrar cuota) ---
     try:
-        # Consolidamos en 2 búsquedas potentes (Total cuota: 200 unidades)
+        current_year = datetime.now().year
+        next_year = current_year + 1
+        
+        # Consolidamos en 3 búsquedas potentes
         queries = [
-            "official movie trailer 2025 2026", # General estrenos cine
-            "netflix disney amazon prime apple movie trailer" # General streaming
+            f"official movie trailer {current_year} {next_year}", # General estrenos cine
+            "netflix disney amazon prime apple movie trailer", # General streaming
+            f"tráiler oficial película {current_year} {next_year}" # Búsqueda específica en español
         ]
         
         # Ampliamos el margen a 15 días para capturar mejor las novedades de catálogo y trailers mensuales
@@ -119,7 +123,9 @@ def find_and_select_next():
     filtered = []
     for v in videos:
         t = v['title'].lower()
-        if 'official' in t and 'trailer' in t:
+        # Aceptamos tanto la versión inglesa como la española (con y sin tilde)
+        is_trailer = ('official' in t and 'trailer' in t) or ('oficial' in t and ('tráiler' in t or 'trailer' in t))
+        if is_trailer:
             if not any(bw in t for bw in banned_words):
                 filtered.append(v)
     
@@ -137,8 +143,8 @@ def find_and_select_next():
         
         prompt = f"""Analiza estos vídeos de YouTube (trailers, novedades). 
         Extrae PELÍCULAS (Feature Films) que cumplan UNA de estas condiciones:
-        1. Son estrenos recientes o próximos (2025-2026).
-        2. Son películas RECIENTES (2024-2025) que están en plataformas de streaming (Netflix, Amazon Prime, Apple TV+, Disney+, etc.).
+        1. Son estrenos recientes o próximos ({current_year}-{next_year}).
+        2. Son películas RECIENTES ({current_year-1}-{current_year}) que están en plataformas de streaming (Netflix, Amazon Prime, Apple TV+, Disney+, etc.).
         
         **VALIDACIÓN CRÍTICA**: Si el título de la película es común (ej: "Dolly", "Smile", "Alone"), verifica doblemente que el tráiler de YouTube pertenece realmente a esa producción. Si el tráiler es de una película indie y hay un blockbuster con el mismo nombre en desarrollo, NO los confundas.
         
