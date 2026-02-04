@@ -61,7 +61,7 @@ def _translate_title_with_ai(title: str) -> str | None:
 # --- Función Principal ---
 def main():
     if not SEL_FILE.exists():
-        logging.error("Falta next_release.json. Ejecuta select_next_release.py primero.")
+        logging.error("Falta next_release.json. Asegúrate de que el proceso de selección o manual_publish ha terminado correctamente.")
         return
 
     sel = json.loads(SEL_FILE.read_text(encoding="utf-8"))

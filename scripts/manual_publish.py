@@ -200,6 +200,25 @@ def main():
                 logging.info(f"🎉 ¡SUBIDO! https://youtu.be/{video_id}")
                 movie_utils.mark_published(data, video_id)
                 cleanup_temp.cleanup_on_end()
+
+                # --- RESUMEN FINAL ESTILO PUBLISH.PY ---
+                # Intentar recargar el JSON actualizado con el guion final
+                final_sel = data
+                try:
+                    if NEXT_FILE.exists():
+                        final_sel = json.loads(NEXT_FILE.read_text(encoding="utf-8"))
+                except: pass
+
+                logging.info("\n" + "="*70)
+                logging.info("🎬 RESUMEN DE LA PUBLICACIÓN MANUAL:")
+                logging.info(f"   📼 Título: {final_sel.get('titulo', 'N/A')}")
+                logging.info(f"   🎯 Estrategia: {final_sel.get('hook_angle', 'N/A')}")
+                logging.info(f"   📝 Sinopsis: {final_sel.get('sinopsis', 'N/A')}")
+                logging.info(f"   🔗 Trailer: {final_sel.get('trailer_url', 'N/A')}")
+                logging.info(f"   ✅ Short: https://studio.youtube.com/video/{video_id}/edit")
+                logging.info(f"\n   📜 GUIÓN GENERADO:")
+                logging.info(f"   {final_sel.get('guion_generado', 'N/A')}")
+                logging.info("="*70 + "\n")
             else:
                 logging.error("❌ Fallo en la subida.")
         else:
