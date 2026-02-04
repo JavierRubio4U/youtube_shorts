@@ -140,7 +140,7 @@ def find_and_select_next():
         1. Son estrenos recientes o próximos (2025-2026).
         2. Son películas RECIENTES (2024-2025) que están en plataformas de streaming (Netflix, Amazon Prime, Apple TV+, Disney+, etc.).
         
-        Asegúrate de que estas plataformas estén incluidas en la selección si cumplen los criterios de fecha.
+        **VALIDACIÓN CRÍTICA**: Si el título de la película es común (ej: "Dolly", "Smile", "Alone"), verifica doblemente que el tráiler de YouTube pertenece realmente a esa producción. Si el tráiler es de una película indie y hay un blockbuster con el mismo nombre en desarrollo, NO los confundas.
         
         EXCLUYE: Series, documentales, películas antiguas (anteriores a 2024).
         
