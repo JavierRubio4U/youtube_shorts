@@ -43,13 +43,13 @@ def clip_from_img(path: Path, dur: float, w: int, h: int, fps: float = FPS_TARGE
         current_ratio = img_w / img_h
         if current_ratio > target_ratio:
             img_clip = img_clip.resized(height=h)
-            left_crop = (img_clip.w - w) // 2
-            img_clip = img_clip.cropped(x1=left_crop, x2=img_clip.w - left_crop)
+            x1 = (img_clip.w - w) // 2
+            img_clip = img_clip.cropped(x1=x1, y1=0, width=w, height=h)
         else:
             img_clip = img_clip.resized(width=w)
-            top_crop = (img_clip.h - h) // 2
-            img_clip = img_clip.cropped(y1=top_crop, y2=img_clip.h - top_crop)
-        return img_clip
+            y1 = (img_clip.h - h) // 2
+            img_clip = img_clip.cropped(x1=0, y1=y1, width=w, height=h)
+        return img_clip.with_duration(dur)
     except Exception as e:
         logging.error(f"Error al cargar imagen {path}: {e}")
         return None

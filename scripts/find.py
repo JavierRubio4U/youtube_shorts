@@ -138,9 +138,11 @@ def find_and_select_next():
         prompt = f"""Analiza estos vídeos de YouTube (trailers, novedades). 
         Extrae PELÍCULAS (Feature Films) que cumplan UNA de estas condiciones:
         1. Son estrenos recientes o próximos (2025-2026).
-        2. Son películas relativamente RECIENTES (años 2024-2025) que ACABAN DE LLEGAR o van a llegar este mes a Netflix, Disney+ o Amazon Prime Video.
+        2. Son películas RECIENTES (2024-2025) que están en plataformas de streaming (Netflix, Amazon Prime, Apple TV+, Disney+, etc.).
         
-        EXCLUYE: Series, documentales, películas antiguas (anteriores a 2024) y contenido de HBO/Max, Apple TV o SkyShowtime.
+        Asegúrate de que estas plataformas estén incluidas en la selección si cumplen los criterios de fecha.
+        
+        EXCLUYE: Series, documentales, películas antiguas (anteriores a 2024).
         
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""
