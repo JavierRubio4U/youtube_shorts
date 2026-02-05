@@ -308,7 +308,7 @@ def find_and_select_next():
     # --- DEEP RESEARCH ---
     logging.info(f"🕵️  Deep Research para: {selected['titulo']}...")
     main_actor_ref = selected.get('actors', [selected['titulo']])[0]
-    deep_data = get_deep_research_data(selected['titulo'], selected['fecha_estreno'][:4], main_actor_ref, selected['tmdb_id'])
+    deep_data = get_deep_research_data(selected['titulo'], selected['fecha_estreno'][:4], main_actor_ref, selected['tmdb_id'], selected.get('sinopsis', ''))
 
     if deep_data:
         strategy = deep_data.get('hook_angle', 'CURIOSITY')
@@ -326,6 +326,12 @@ def find_and_select_next():
     elif selected.get('needs_web'):
         selected['sinopsis'] = get_synopsis_chain(selected['titulo'], selected['año'], selected['tmdb_id'])
         selected['hook_angle'] = 'PLOT'
+
+    # --- VALIDACIÓN FINAL SINOPSIS ---
+    final_sinopsis = selected.get('sinopsis', '').strip()
+    if not final_sinopsis or len(final_sinopsis) < 10:
+        logging.error(f"❌ RECHAZADA: '{selected['titulo']}' no tiene sinopsis válida tras todos los intentos. Pasando a la siguiente...")
+        return None
 
     payload = {**selected, "seleccion_generada": datetime.now(timezone.utc).isoformat() + "Z"}
     NEXT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

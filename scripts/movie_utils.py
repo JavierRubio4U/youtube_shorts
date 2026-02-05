@@ -203,42 +203,78 @@ def get_synopsis_chain(title: str, year: int, tmdb_id: str) -> str:
         return ""
 
 # --- DEEP RESEARCH AGENT (STANDARD API) ---
-def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str) -> dict | None:
+def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str, overview: str = "") -> dict | None:
     """
     Obtiene salseo y DECIDE cuál es el mejor ángulo de venta (Gancho) usando la API Estándar.
+    Si no hay sinopsis, intenta buscar en la web primero.
     """
     logging.info(f"🧠 Deep Research: Analizando estrategia editorial para '{title}'...")
     
     config = load_config()
     if not config: return None
+
+    # Si no tenemos sinopsis de TMDB, intentamos una búsqueda web rápida con Gemini (si el modelo lo soporta)
+    # o simplemente le pedimos a Gemini que use sus herramientas de búsqueda si están activas.
     
     try:
         client = genai.Client(api_key=config["GEMINI_API_KEY"])
 
+        contexto_sinopsis = f"\nSINOPSIS OFICIAL (TMDB): {overview}" if overview else "\n⚠️ ATENCIÓN: No tengo sinopsis oficial de TMDB para esta película."
+
         research_prompt = f"""
-        Investiga la película '{title}' ({year}). 
-        Tu objetivo es decidir CÓMO venderla en un video corto de humor ácido/salseo.
+        Investiga a fondo la película '{title}' estrenada o por estrenar en el año {year}. 
+        {contexto_sinopsis}
         
-        1. **Curiosidad/Salseo:** Algo impactante y EXPLICADO (si mencionas un dato técnico o de la carrera del actor, aclara por qué es importante para alguien que no sepa de cine).
-        2. **Actor Principal:** ({main_actor}) ¿Qué hace aquí que sea distinto a sus papeles famosos?
-        3. **Director:** ¿Qué podemos esperar de su estilo?
+        **TU MISIÓN:**
+        1. Si la sinopsis oficial está vacía, BUSCA información real sobre de qué trata esta película específica de {year}. No inventes.
+        2. Decide CÓMO venderla en un video corto de humor ácido/salseo.
         
-        DECISIÓN FINAL: ¿Cuál es el gancho más fuerte para empezar el vídeo?
+        **ESTILO:** No seas un crítico de cine gafapasta. Sé gamberro, usa lenguaje de la calle (jerga española moderna), evita palabras rebuscadas. No queremos a Cervantes ni lenguaje épico de IA. Queremos a alguien que cuenta las cosas con mala leche y humor de bar.
         
-        IMPORTANTE: Responde SÓLO con un JSON válido.
+        **REGLAS CRÍTICAS:**
+        - Si NO encuentras información real de la trama o es una película diferente a la del año {year}, responde con "ERROR: NO_INFO".
+        - Prohibido alucinar. Si no hay datos, no hay vídeo.
+        - Usa al actor principal ({main_actor}) como referencia si es relevante.
+
+        Responde SÓLO con un JSON válido o la palabra "ERROR: NO_INFO".
         Formato JSON:
         {{
-            "synopsis": "Sinopsis gamberra pero informativa de la trama (qué pasa realmente)",
-            "actor_reference": "Dato curioso sobre el actor explicado para todos los públicos",
-            "director": "Nombre y por qué deberías conocerlo",
-            "movie_curiosity": "El dato impactante/salseo bien contextualizado",
+            "synopsis": "Sinopsis gamberra pero informativa de la trama REAL",
+            "actor_reference": "Dato curioso sobre {main_actor} explicado para todos los públicos",
+            "director": "Nombre del director y su estilo",
+            "movie_curiosity": "El salseo/dato impactante real de esta película",
             "hook_angle": "ACTOR" | "DIRECTOR" | "CURIOSITY" | "PLOT",
             "platform": "Cine o plataforma streaming (estimada)"
         }}
         """
         
-        # Llamada directa sin agentes beta
-        response = client.models.generate_content(model=GEMINI_MODEL, contents=research_prompt)
+        logging.info(f"DEBUG - Enviando consulta a Gemini para investigar '{title}' ({year})...")
+        
+        # Usamos google-search si está disponible para evitar alucinaciones
+        response = client.models.generate_content(
+            model=GEMINI_MODEL, 
+            contents=research_prompt,
+            config={"tools": [{"google_search": {}}]}
+        )
+        text = response.text.strip()
+        
+        if "ERROR: NO_INFO" in text:
+            logging.error(f"❌ La IA no ha encontrado información fiable para '{title}' y ha abortado para no inventar.")
+            return None
+
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+            
+        final_json = json.loads(text)
+
+        # Doble check de seguridad: si la sinopsis generada es demasiado corta o genérica
+        if not final_json.get("synopsis") or len(final_json["synopsis"]) < 20:
+             logging.error("❌ La sinopsis generada es demasiado pobre. Abortando por seguridad.")
+             return None
+
+        return final_json
         text = response.text.strip()
         
         if "```json" in text:

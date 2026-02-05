@@ -166,13 +166,14 @@ def main():
         plataformas_str_desc = "Próximamente en cines"
 
     description = (
-        f"Descubre el tráiler oficial de '{final_title}', la película del {year}. "
-        f"Aquí tienes toda la información sobre su estreno y dónde verla.\n\n"
-        f"► Título: {final_title}\n"
-        f"► Año de estreno: {year}\n"
-        f"► Sinopsis: {sel.get('sinopsis', 'Próximamente más detalles.')}\n\n"
-        f"► Plataformas: {plataformas_str_desc}\n\n"
-        f"¡No te pierdas las últimas novedades y tráilers de cine y series!\n\n"
+        f"¡Ojo al tráiler de '{final_title}' ({year})! "
+        f"Te contamos de qué va la movida y cuándo la sueltan en {plataforma_con_pais}.\n\n"
+        f"🔥 LO QUE TIENES QUE SABER:\n"
+        f"👉 Título: {final_title}\n"
+        f"👉 Estreno: {year}\n"
+        f"👉 La Trama: {sel.get('sinopsis', 'Próximamente más detalles.')}\n\n"
+        f"📍 Dónde verla: {plataformas_str_desc}\n\n"
+        f"¡Suscríbete para no perderte ni un salseo de los próximos estrenos!\n\n"
         f"#trailer #tráilerespañol #{final_title.replace(' ', '').replace(':', '')} {plataformas_str_hashtags}"
     )
 

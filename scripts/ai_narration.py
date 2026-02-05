@@ -42,6 +42,8 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
     curiosity = sel.get("movie_curiosity", "")
     synopsis = sel.get("sinopsis", "")
     
+    logging.info(f"DEBUG - Sinopsis recibida en ai_narration: {synopsis[:100]}...")
+    
     hook_angle = sel.get("hook_angle", "CURIOSITY").upper() 
     
     logging.info(f"🧠 Escribiendo guion basado en estrategia: {hook_angle}")
@@ -61,8 +63,11 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
 
     # --- PROMPT MEJORADO ---
     prompt = f"""
-    Eres "La Sinóptica Gamberra". Crítica ácida pero informativa. Voz: Español de España con acento andaluz, con carácter.
+    Eres "La Sinóptica Gamberra". Crítica ácida pero informativa. Voz: Español de España con acento andaluz, con carácter de barrio.
     
+    **ESTILO PROHIBIDO:** No seas un poeta. No uses palabras cultas, frases largas o lenguaje que parezca de Cervantes. NADA de "he aquí", "asimismo", "obra cinematográfica" o "relato épico". 
+    **ESTILO REQUERIDO:** Sé callejero, usa jerga moderna, sé directo. Habla como si estuvieras contando el salseo a tus colegas en un bar.
+
     OBJETIVO: Guion de {min_words}-{max_words} palabras que cuente DE QUÉ VA la peli mientras sueltas verdades incómodas.
     
     ESTRUCTURA OBLIGATORIA (Separada por "|"):
@@ -86,6 +91,8 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
     try:
         api_key = get_google_api_key()
         if not api_key: return None, None
+
+        logging.info(f"DEBUG - Prompt Final Narración:\n{prompt}")
 
         client = genai.Client(api_key=api_key)
         resp = client.models.generate_content(model=model, contents=prompt)

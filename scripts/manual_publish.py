@@ -81,17 +81,29 @@ class Tee(object):
         self.files = files
     def write(self, obj):
         for f in self.files:
-            f.write(obj)
-            f.flush() # If you want the output to be visible immediately
+            try:
+                f.write(obj)
+            except UnicodeEncodeError:
+                if hasattr(obj, 'encode'):
+                    f.write(obj.encode('ascii', 'replace').decode('ascii'))
+                else:
+                    f.write(str(obj))
+            f.flush()
     def flush(self) :
         for f in self.files:
             f.flush()
 
 def main():
     # 0. Configurar logging dual (Terminal + Archivo)
-    log_file = open("log_ejecucion.txt", "w", encoding="utf-8")
+    # Usamos 'a' para no borrar si ya hay algo, pero el .bat suele limpiar
+    log_file = open("log_ejecucion.txt", "a", encoding="utf-8")
     sys.stdout = Tee(sys.stdout, log_file)
     sys.stderr = Tee(sys.stderr, log_file)
+
+    # Re-configuramos logging para que use el nuevo sys.stderr (nuestro Tee)
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s', stream=sys.stderr)
 
     # 0.1 Limpieza inicial
     cleanup_temp.cleanup_on_start()
@@ -137,6 +149,11 @@ def main():
         logging.error("❌ Fallo al enriquecer datos de TMDB.")
         return
 
+    # --- VALIDACIÓN DE SINOPSIS ---
+    # Si no hay sinopsis, no abortamos aquí; dejamos que el Deep Research intente buscarla en la web.
+    if not data.get('sinopsis') or len(data['sinopsis'].strip()) < 10:
+        logging.warning(f"⚠️ Sin sinopsis en TMDB para '{tmdb_movie['title']}'. Intentaremos búsqueda web en el siguiente paso...")
+
     # Añadimos datos extra necesarios
     data['upload_date'] = upload_date
     data['views'] = 0 # Dummy value, es manual
@@ -146,7 +163,11 @@ def main():
     # 5. DEEP RESEARCH (El Editor IA)
     logging.info("🕵️  Consultando al Editor IA (Deep Research)...")
     main_actor_ref = data.get('actors', [data['titulo']])[0]
-    deep_data = get_deep_research_data(data['titulo'], str(target_year), main_actor_ref, data['tmdb_id'])
+    deep_data = get_deep_research_data(data['titulo'], str(target_year), main_actor_ref, data['tmdb_id'], data.get('sinopsis', ''))
+
+    if not deep_data:
+        logging.error(f"❌ ABORTANDO: El Editor IA no ha podido encontrar información real sobre '{data['titulo']}' ({target_year}). Para evitar inventar datos, detenemos el proceso.")
+        return
 
     if deep_data:
         strategy = deep_data.get('hook_angle', 'CURIOSITY')
