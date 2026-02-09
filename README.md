@@ -143,6 +143,7 @@ Queries Google API to see which Gemini models are active with your current key.
     - `published.json`: List of published TMDB IDs to avoid duplicates.
     - `historic.json`: Detailed log of all successful releases (scores, strategies, titles).
     - `youtube_token.json`: OAuth2 credentials for YouTube.
+- **`test/`**: Scripts for verification and troubleshooting (ignored by git).
 
 ## ⚠️ Troubleshooting
 

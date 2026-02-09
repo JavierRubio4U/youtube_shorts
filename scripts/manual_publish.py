@@ -25,15 +25,15 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 # --- Imports de tus módulos ---
-from movie_utils import (
-    api_get, enrich_movie_basic, get_deep_research_data, load_config
-)
 import download_assets
 import build_youtube_metadata
 import build_short
 import upload_youtube
 import cleanup_temp
 import movie_utils
+from movie_utils import (
+    api_get, enrich_movie_basic, get_deep_research_data
+)
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -47,17 +47,20 @@ def get_youtube_service():
         creds = Credentials(token=token_data['token'], refresh_token=token_data['refresh_token'],
                             token_uri=token_data['token_uri'], client_id=token_data['client_id'],
                             client_secret=token_data['client_secret'], scopes=token_data['scopes'])
-        if creds.expired and creds.refresh_token: creds.refresh(Request())
+        if creds.expired and creds.refresh_token: 
+            creds.refresh(Request())
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
         return build('youtube', 'v3', credentials=creds)
     except Exception as e:
         logging.error(f"Error auth YouTube: {e}")
         return None
 
-def find_youtube_trailer(title, year):
+def find_youtube_trailer(title, year, actor=None):
     youtube = get_youtube_service()
     if not youtube: return None, None
     
-    query = f"{title} {year} official trailer movie"
+    query = f"{title} {year} {actor if actor else ''} official trailer movie".replace("  ", " ")
     logging.info(f"🔎 Buscando tráiler en YouTube: '{query}'...")
     
     try:
@@ -96,9 +99,12 @@ class Tee(object):
 def main():
     # 0. Configurar logging dual (Terminal + Archivo)
     # Usamos 'a' para no borrar si ya hay algo, pero el .bat suele limpiar
-    log_file = open("log_ejecucion.txt", "a", encoding="utf-8")
-    sys.stdout = Tee(sys.stdout, log_file)
-    sys.stderr = Tee(sys.stderr, log_file)
+    f_daily = open(ROOT / "log_autopilot.txt", "a", encoding="utf-8")
+    f_history = open(ROOT / "log_history.txt", "a", encoding="utf-8")
+    
+    # Redirigimos todo a ambos archivos y a la consola
+    sys.stdout = Tee(sys.stdout, f_daily, f_history)
+    sys.stderr = Tee(sys.stderr, f_daily, f_history)
 
     # Re-configuramos logging para que use el nuevo sys.stderr (nuestro Tee)
     for handler in logging.root.handlers[:]:
@@ -127,27 +133,91 @@ def main():
 
     # 2. Buscar en TMDB
     logging.info(f"🔎 Buscando '{target_title}' en TMDB...")
-    res = api_get("/search/movie", {"query": target_title, "year": target_year, "language": "es-ES"})
+    res = api_get("/search/movie", {"query": target_title, "language": "es-ES"})
     
     if not res or not res.get("results"):
         logging.error("❌ No encontrada en TMDB.")
         return
 
-    # Selección simple (el primer resultado)
-    tmdb_movie = res["results"][0]
-    logging.info(f"✅ Coincidencia: {tmdb_movie['title']} ({tmdb_movie.get('release_date')})")
+    # --- FILTRADO DE RESULTADOS (Anti-Bollywood y limpieza de años) ---
+    excluded_langs = ['hi', 'te', 'ta', 'ml', 'kn', 'pa', 'ur']
+    filtered_results = []
+    for m in res["results"]:
+        # 1. Filtro de idioma original (Evita scripts no latinos/cine regional indio)
+        if m.get("original_language") in excluded_langs:
+            continue
+        
+        # 2. Filtro de año estricto (Margen de 1 año para evitar errores de TMDB)
+        date_str = m.get("release_date")
+        if date_str:
+            m_year = date_str[:4]
+            if abs(int(m_year) - int(target_year)) > 1:
+                continue
+        filtered_results.append(m)
+
+    if not filtered_results:
+        logging.error(f"❌ No se encontraron coincidencias válidas para '{target_title}' en {target_year} tras filtrar idiomas y fechas.")
+        return
+
+    results = filtered_results
+    if len(results) > 1:
+        print(f"\nSe han encontrado {len(results)} coincidencias:")
+        for i, m in enumerate(results):
+            title = m.get('title')
+            orig_title = m.get('original_title', '')
+            display_title = title if title == orig_title else f"{title} ({orig_title})"
+            overview = m.get('overview', 'Sin descripción disponible.')
+            short_desc = (overview[:100] + '...') if len(overview) > 100 else overview
+            print(f"  [{i+1}] {display_title} - {m.get('release_date', 'N/A')} [ID: {m['id']}]\n      └─ {short_desc}")
+        
+        while True:
+            try:
+                choice = input("\nSelecciona el número correcto (o 'q' para cancelar): ").strip().lower()
+                if choice == 'q':
+                    logging.info("Proceso cancelado.")
+                    return
+                idx = int(choice) - 1
+                if 0 <= idx < len(results):
+                    tmdb_movie = results[idx]
+                    break
+                else:
+                    print("Número fuera de rango.")
+            except ValueError:
+                print("Por favor, introduce un número válido.")
+    else:
+        tmdb_movie = results[0]
+
+    logging.info(f"✅ Seleccionado: {tmdb_movie.get('title')}")
+
+    # Verificación de si ya existe
+    if movie_utils.is_published(tmdb_movie["id"]):
+        print(f"\n⚠️  ATENCIÓN: '{tmdb_movie['title']}' ya ha sido publicada anteriormente.")
+        confirm = input("¿Deseas continuar con la publicación manual? (s/n): ").strip().lower()
+        if confirm != 's':
+            logging.info("Proceso cancelado por el usuario.")
+            return
     
-    # 3. Buscar Trailer
-    trailer_url, upload_date = find_youtube_trailer(tmdb_movie['title'], target_year)
+    # 3. Obtener datos y buscar Trailer
+    # Primero enriquecemos para tener el reparto y buscar el tráiler con precisión
+    data = enrich_movie_basic(tmdb_movie["id"], tmdb_movie.get('title'), int(target_year))
+
+    if not data:
+        logging.error("❌ Fallo al enriquecer datos de TMDB.")
+        return
+
+    if not data.get('has_poster'):
+        logging.warning(f"⚠️ La película '{tmdb_movie['title']}' no tiene póster ni backdrop en TMDB.")
+        if input("¿Deseas continuar sin imagen? (El vídeo fallará al generarse si no hay visuales) (s/n): ").lower() != 's':
+            return
+    
+    main_actor = data.get('actors', [""])[0]
+    trailer_url, upload_date = find_youtube_trailer(data['titulo'], target_year, actor=main_actor)
+    
     if not trailer_url:
         logging.error("❌ No se encontró tráiler en YouTube.")
         return
 
-    # 4. Enriquecer datos (Metadatos básicos)
-    data = enrich_movie_basic(tmdb_movie["id"], tmdb_movie['title'], int(target_year), trailer_url)
-    if not data:
-        logging.error("❌ Fallo al enriquecer datos de TMDB.")
-        return
+    data['trailer_url'] = trailer_url
 
     # --- VALIDACIÓN DE SINOPSIS ---
     # Si no hay sinopsis, no abortamos aquí; dejamos que el Deep Research intente buscarla en la web.
@@ -180,6 +250,7 @@ def main():
         logging.info("-" * 60 + "\n")
         
         if deep_data.get('synopsis'): data['sinopsis'] = deep_data['synopsis']
+        if deep_data.get('platform'): data['ia_platform_from_title'] = deep_data['platform']
         data['actor_reference'] = deep_data.get('actor_reference')
         data['director'] = deep_data.get('director')
         data['movie_curiosity'] = deep_data.get('movie_curiosity')

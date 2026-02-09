@@ -69,7 +69,7 @@ def upload_video(video_path: str, meta: dict) -> str | None:
             'categoryId': '24' # Entertainment
         },
         'status': {
-            'privacyStatus': meta.get('default_visibility', 'public'),
+            'privacyStatus': meta.get('privacyStatus', 'public'),
             'madeForKids': meta.get('made_for_kids', False),
             'selfDeclaredMadeForKids': False
         }

@@ -191,7 +191,7 @@ def main():
         "title": youtube_title,
         "description": description.strip(),
         "tags": sorted(list(set(kw.lower() for kw in keywords if kw and kw != "N/A"))),
-        "privacyStatus": "private",
+        "privacyStatus": "public",
         "madeForKids": False,
         "categoryId": "1"  # Film & Animation
     }

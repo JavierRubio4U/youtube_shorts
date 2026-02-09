@@ -51,24 +51,24 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
     hook_instruction = ""
     if hook_angle == "ACTOR":
         ref = actor_ref if actor_ref else f"un dato loco sobre {actor}"
-        hook_instruction = f"Empieza atacando a **{actor}** con este dato: '{ref}'. Tono ácido."
+        hook_instruction = f"Empieza con un comentario divertido sobre **{actor}** usando este dato: '{ref}'. Tono de colega que sabe demasiado."
     elif hook_angle == "DIRECTOR":
         d_name = director if director else "el director"
-        hook_instruction = f"Céntrate en **{d_name}**. Critica o alaba su estilo con mucha ironía."
+        hook_instruction = f"Céntrate en **{d_name}**. Comenta su estilo con mucha guasa y anécdotas locas."
     elif hook_angle == "PLOT":
-        hook_instruction = f"Empieza directamente con lo más absurdo de la trama. ¡Que no se lo crean!"
+        hook_instruction = f"Empieza soltando lo más loco o flipante de la trama. ¡Que floten!"
     else: # CURIOSITY
         dato = curiosity if curiosity else "el rodaje fue un desastre"
-        hook_instruction = f"¡Suelta la bomba! Empieza con este dato: **'{dato}'**. Tono de 'te cuento un secreto'."
+        hook_instruction = f"¡Suelta el salseo! Empieza con este dato: **'{dato}'**. Tono de 'no te vas a creer lo que pasó'."
 
     # --- PROMPT MEJORADO ---
     prompt = f"""
-    Eres "La Sinóptica Gamberra". Crítica ácida pero informativa. Voz: Español de España con acento andaluz, con carácter de barrio.
+    Eres "La Sinóptica Gamberra". Humor canalla, salseo y mucha chispa. Voz: Español de España con acento andaluz, con carácter de barrio.
     
     **ESTILO PROHIBIDO:** No seas un poeta. No uses palabras cultas, frases largas o lenguaje que parezca de Cervantes. NADA de "he aquí", "asimismo", "obra cinematográfica" o "relato épico". 
-    **ESTILO REQUERIDO:** Sé callejero, usa jerga moderna, sé directo. Habla como si estuvieras contando el salseo a tus colegas en un bar.
+    **ESTILO REQUERIDO:** Sé callejero, usa jerga moderna, sé directo y muy gracioso. Habla como si estuvieras contando la movida a tus colegas en un bar entre risas.
 
-    OBJETIVO: Guion de {min_words}-{max_words} palabras que cuente DE QUÉ VA la peli mientras sueltas verdades incómodas.
+    OBJETIVO: Guion de {min_words}-{max_words} palabras que cuente DE QUÉ VA la peli con un tono divertido, exagerado y muy entretenido.
     
     ESTRUCTURA OBLIGATORIA (Separada por "|"):
     
@@ -82,7 +82,7 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
        - Conecta el gancho con el resto de la historia de forma fluida y natural.
        - Da detalles de la trama. Que el espectador sepa QUÉ va a ver realmente.
        - Todo debe entenderse a la primera, sin necesidad de ser un experto en cine o conocer referencias oscuras.
-       - Termina con una CONCLUSIÓN ÁCIDA: Una frase final con mucha ironía o humor sobre la peli. Usa el sarcasmo en lugar del ataque directo. Evita estructuras repetitivas.
+       - Termina con un REMATE DIVERTIDO: Una frase final con mucha guasa, un chiste o una observación ingeniosa que deje con ganas de más. Evita ser puramente negativo.
        - NO hagas preguntas al espectador.
     
     OUTPUT: Texto Gancho | Texto Meollo

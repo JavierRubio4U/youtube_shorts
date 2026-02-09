@@ -16,6 +16,7 @@ CONFIG_DIR = ROOT / "config"
 STATE_DIR = ROOT / "output" / "state"
 PUBLISHED_FILE = STATE_DIR / "published.json"
 HISTORIC_FILE = STATE_DIR / "historic.json"
+DISCARDS_FILE = STATE_DIR / "discards.json"
 
 # --- Configuración de APIs y Constantes ---
 def load_config():
@@ -114,6 +115,29 @@ def is_published(tmdb_id: int) -> bool:
     state = _load_state()
     return any(pub.get("id") == tmdb_id for pub in state["published_ids"])
 
+def log_discard(title: str, reason: str, tmdb_id: int = None):
+    """Guarda el motivo del descarte en un JSON estructurado para investigación."""
+    discards = []
+    if DISCARDS_FILE.exists():
+        try:
+            content = DISCARDS_FILE.read_text(encoding="utf-8")
+            if content:
+                discards = json.loads(content)
+        except: pass
+    
+    discards.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "title": title,
+        "tmdb_id": tmdb_id,
+        "reason": reason
+    })
+    
+    try:
+        # Guardamos los últimos 300 descartes para tener historial de sobra
+        DISCARDS_FILE.write_text(json.dumps(discards[-300:], ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logging.error(f"Error al guardar discards.json: {e}")
+
 def api_get(path, params=None):
     config = load_config()
     if not config:
@@ -144,8 +168,11 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
 
         posters = [f"{IMG_BASE_URL}/{POSTER_SIZE}{p['file_path']}" for p in data.get("images", {}).get("posters", [])]
         poster_principal = posters[0] if posters else None
+
+        # Fallback al backdrop si no hay póster (común en anuncios tempranos)
         if not poster_principal:
-            return None
+            backdrops = [f"{IMG_BASE_URL}/{BACKDROP_SIZE}{b['file_path']}" for b in data.get("images", {}).get("backdrops", [])]
+            poster_principal = backdrops[0] if backdrops else None
 
         generos = [g["name"] for g in data.get("genres", [])]
         
@@ -227,9 +254,9 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str,
         
         **TU MISIÓN:**
         1. Si la sinopsis oficial está vacía, BUSCA información real sobre de qué trata esta película específica de {year}. No inventes.
-        2. Decide CÓMO venderla en un video corto de humor ácido/salseo.
+        2. Decide CÓMO venderla en un video corto con humor canalla, divertido y mucho salseo.
         
-        **ESTILO:** No seas un crítico de cine gafapasta. Sé gamberro, usa lenguaje de la calle (jerga española moderna), evita palabras rebuscadas. No queremos a Cervantes ni lenguaje épico de IA. Queremos a alguien que cuenta las cosas con mala leche y humor de bar.
+        **ESTILO:** No seas un crítico de cine aburrido. Sé gamberro, usa lenguaje de la calle (jerga española moderna), evita palabras rebuscadas. No queremos a Cervantes ni lenguaje épico de IA. Queremos a alguien que cuenta las cosas con mucha guasa, anécdotas locas y humor de bar, pero que den ganas de ver la peli (o de reírse con ella).
         
         **REGLAS CRÍTICAS:**
         - Si NO encuentras información real de la trama o es una película diferente a la del año {year}, responde con "ERROR: NO_INFO".
@@ -239,7 +266,7 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str,
         Responde SÓLO con un JSON válido o la palabra "ERROR: NO_INFO".
         Formato JSON:
         {{
-            "synopsis": "Sinopsis gamberra pero informativa de la trama REAL",
+            "synopsis": "Sinopsis divertida, con chispa e informativa de la trama REAL",
             "actor_reference": "Dato curioso sobre {main_actor} explicado para todos los públicos",
             "director": "Nombre del director y su estilo",
             "movie_curiosity": "El salseo/dato impactante real de esta película",

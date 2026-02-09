@@ -17,7 +17,7 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 
 from movie_utils import (
     _load_state, is_published, api_get, get_synopsis_chain, enrich_movie_basic,
-    load_config, get_deep_research_data
+    load_config, get_deep_research_data, log_discard
 )
 
 # --- Configuración ---
@@ -47,7 +47,10 @@ def find_and_select_next():
         creds = Credentials(token=token_data['token'], refresh_token=token_data['refresh_token'],
                             token_uri=token_data['token_uri'], client_id=token_data['client_id'],
                             client_secret=token_data['client_secret'], scopes=token_data['scopes'])
-        if creds.expired and creds.refresh_token: creds.refresh(Request())
+        if creds.expired and creds.refresh_token: 
+            creds.refresh(Request())
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
         youtube = build('youtube', 'v3', credentials=creds)
     except Exception as e:
         logging.error(f"Error auth YouTube: {e}")
@@ -62,7 +65,9 @@ def find_and_select_next():
         queries = [
             f"official movie trailer {current_year} {next_year}", # General estrenos cine
             "netflix disney amazon prime apple movie trailer", # General streaming
-            f"tráiler oficial película {current_year} {next_year}" # Búsqueda específica en español
+            f"tráiler oficial película {current_year} {next_year}", # Búsqueda específica en español
+            f"super bowl movie trailers {current_year}", # Eventos grandes
+            f"big game movie spot {current_year}" # Spots de la Super Bowl
         ]
         
         # Ampliamos el margen a 15 días para capturar mejor las novedades de catálogo y trailers mensuales
@@ -123,11 +128,19 @@ def find_and_select_next():
     filtered = []
     for v in videos:
         t = v['title'].lower()
-        # Aceptamos tanto la versión inglesa como la española (con y sin tilde)
-        is_trailer = ('official' in t and 'trailer' in t) or ('oficial' in t and ('tráiler' in t or 'trailer' in t))
-        if is_trailer:
-            if not any(bw in t for bw in banned_words):
-                filtered.append(v)
+        # Aceptamos Trailer, Teaser o Spot
+        is_promo = any(kw in t for kw in ['trailer', 'tráiler', 'teaser', 'spot'])
+        
+        if is_promo:
+            # Para 'Trailer', seguimos exigiendo 'Official' para evitar basura fan-made
+            # Pero para 'Spot' o 'Teaser' de grandes eventos, somos más flexibles
+            is_official = 'official' in t or 'oficial' in t
+            
+            # Un 'Spot' o 'Teaser' suele ser oficial de por sí si viene de canales grandes,
+            # pero el script confía en el Gemini Filter posterior para descartar fan-made.
+            if is_official or 'spot' in t or 'teaser' in t:
+                if not any(bw in t for bw in banned_words):
+                    filtered.append(v)
     
     logging.info(f"🔍 Filtrado (Anti-Series): Quedan {len(filtered)} candidatos.")
     if not filtered: return None
@@ -174,6 +187,7 @@ def find_and_select_next():
 
         try:
             ai_movies = json.loads(clean_text)
+            logging.info(f"✅ Gemini identificó {len(ai_movies)} películas potenciales.")
         except json.JSONDecodeError as je:
             logging.error(f"❌ Error decodificando JSON de Gemini. Respuesta recibida:\n{raw_text[:200]}...") # Loguea solo el inicio
             return None
@@ -206,10 +220,13 @@ def find_and_select_next():
         
         res = api_get("/search/movie", {"query": movie_name})
         if not res or not res.get("results"): 
-            logging.info(f"   [x] TMDB: No encontrado '{movie_name}'")
+            reason = "No encontrado en TMDB"
+            logging.info(f"   [x] TMDB: {reason} '{movie_name}'")
+            log_discard(movie_name, reason)
             continue
         
         tmdb_movie = res["results"][0]
+        tmdb_id = tmdb_movie["id"]
         tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
         
         cand_year = cand.get('año')
@@ -223,25 +240,39 @@ def find_and_select_next():
         if not is_streaming_ia:
             target_years = [str(int(cand_year)-1), str(int(cand_year)), str(int(cand_year)+1)]
             if tmdb_year not in target_years: 
-                logging.info(f"   [x] Descartado '{movie_name}': Año incorrecto para estreno cine ({tmdb_year} vs {target_years})")
+                reason = f"Año incorrecto para estreno cine ({tmdb_year} vs {target_years})"
+                logging.info(f"   [x] Descartado '{movie_name}': {reason}")
+                log_discard(movie_name, reason, tmdb_id)
                 continue
         else:
             if int(tmdb_year) < min_year:
-                logging.info(f"   [x] Descartado '{movie_name}': Catálogo demasiado antiguo ({tmdb_year} < {min_year})")
+                reason = f"Catálogo demasiado antiguo ({tmdb_year} < {min_year})"
+                logging.info(f"   [x] Descartado '{movie_name}': {reason}")
+                log_discard(movie_name, reason, tmdb_id)
                 continue
         
         orig_lang = tmdb_movie.get("original_language", "en")
         if orig_lang in excluded_langs:
-             logging.info(f"   [x] Descartado '{movie_name}': Mercado Indio/Asiático ({orig_lang})")
+             reason = f"Mercado Indio/Asiático ({orig_lang})"
+             logging.info(f"   [x] Descartado '{movie_name}': {reason}")
+             log_discard(movie_name, reason, tmdb_id)
              continue
 
-        if is_published(tmdb_movie["id"]): 
-            logging.info(f"   [x] Descartado '{movie_name}': YA PUBLICADO.")
+        if is_published(tmdb_id): 
+            reason = "YA PUBLICADO"
+            logging.info(f"   [x] Descartado '{movie_name}': {reason}.")
+            log_discard(movie_name, reason, tmdb_id)
             continue
         
         data = enrich_movie_basic(tmdb_movie["id"], movie_name, cand_year, cand['trailer_url'])
         
-        if data and data.get('has_poster'):
+        if not data:
+            reason = "Error al enriquecer datos o película no encontrada en TMDB"
+            logging.info(f"   [x] Descartado '{movie_name}': {reason}.")
+            log_discard(movie_name, reason, tmdb_id)
+            continue
+            
+        if data.get('has_poster'):
             is_streaming = False
             video_title_lower = cand.get('video_title_orig', '').lower()
             ia_plat = cand.get('plataforma', 'Cine')
@@ -270,7 +301,9 @@ def find_and_select_next():
                              logging.info(f"   [!] Aceptado '{movie_name}' (Streaming ES): Estreno antiguo ({age_days}d) pero trailer NUEVO ({trailer_age}d) y disponible en España.")
                         else:
                             type_str = "Streaming" if is_streaming else "Cine"
-                            logging.info(f"   [x] Descartado '{movie_name}': {type_str} antiguo ({age_days} días > {days_limit}) o no disponible en ES.")
+                            reason = f"{type_str} antiguo ({age_days} días > {days_limit}) o no disponible en ES"
+                            logging.info(f"   [x] Descartado '{movie_name}': {reason}.")
+                            log_discard(movie_name, reason, tmdb_id)
                             continue
                 except: pass
             
@@ -280,7 +313,9 @@ def find_and_select_next():
             enriched.append(data)
             logging.info(f"   [V] CANDIDATO VÁLIDO ({'Streaming 📺' if is_streaming else 'Cine 🎬'}): {movie_name}")
         else:
-            logging.info(f"   [x] Descartado '{movie_name}': Sin datos básicos.")
+            reason = "No tiene póster ni backdrop (imprescindible para la intro del Short)"
+            logging.info(f"   [x] Descartado '{movie_name}': {reason}.")
+            log_discard(movie_name, reason, tmdb_id)
 
     if not enriched: 
         logging.info("❌ No se encontraron candidatos válidos.")

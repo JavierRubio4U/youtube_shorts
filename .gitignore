@@ -22,6 +22,8 @@ logs/
 *.jpg
 *.png
 log_ejecucion.txt
+log_autopilot.txt
+log_history.txt
 
 # --- Python ---
 __pycache__/
@@ -44,5 +46,3 @@ venv/
 # --- Otros ---
 .DS_Store
 Thumbs.db
-
-

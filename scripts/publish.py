@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import logging
 import subprocess
+from logging.handlers import TimedRotatingFileHandler
 import json
 from datetime import datetime
 
@@ -22,9 +23,23 @@ import movie_utils
 import upload_youtube
 import cleanup_temp
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s: %(message)s', datefmt='%H:%M:%S')
+log_format = '%(asctime)s | %(levelname)s: %(message)s'
+logging.basicConfig(level=logging.INFO, format=log_format, datefmt='%Y-%m-%d %H:%M:%S')
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# 1. Log Histórico (Acumulativo)
+history_path = ROOT / "log_history.txt"
+history_handler = logging.FileHandler(history_path, encoding='utf-8')
+history_handler.setFormatter(logging.Formatter(log_format))
+logging.getLogger().addHandler(history_handler)
+
+# 2. Log del Día (Rotativo - se renueva cada medianoche)
+daily_path = ROOT / "log_autopilot.txt"
+daily_handler = TimedRotatingFileHandler(daily_path, when="midnight", interval=1, backupCount=30, encoding='utf-8')
+daily_handler.setFormatter(logging.Formatter(log_format))
+logging.getLogger().addHandler(daily_handler)
+
 SCRIPTS = ROOT / "scripts"
 STATE = ROOT / "output" / "state"
 
