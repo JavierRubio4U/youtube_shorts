@@ -98,8 +98,8 @@ class Tee(object):
 
 def main():
     # 0. Configurar logging dual (Terminal + Archivo)
-    # Usamos 'a' para no borrar si ya hay algo, pero el .bat suele limpiar
-    f_daily = open(ROOT / "log_autopilot.txt", "a", encoding="utf-8")
+    # Sobreescribimos el log diario, el histórico se mantiene en log_history
+    f_daily = open(ROOT / "log_autopilot.txt", "w", encoding="utf-8")
     f_history = open(ROOT / "log_history.txt", "a", encoding="utf-8")
     
     # Redirigimos todo a ambos archivos y a la consola

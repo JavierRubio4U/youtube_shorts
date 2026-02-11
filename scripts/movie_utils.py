@@ -271,7 +271,7 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str,
             "director": "Nombre del director y su estilo",
             "movie_curiosity": "El salseo/dato impactante real de esta película",
             "hook_angle": "ACTOR" | "DIRECTOR" | "CURIOSITY" | "PLOT",
-            "platform": "Cine o plataforma streaming (estimada)"
+            "platform": "SOLO el nombre de la plataforma (ej: Cine, Netflix, Disney+, Amazon Prime Video). Prohibido añadir chistes, comentarios o descripciones largas."
         }}
         """
         

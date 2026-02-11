@@ -66,8 +66,7 @@ def find_and_select_next():
             f"official movie trailer {current_year} {next_year}", # General estrenos cine
             "netflix disney amazon prime apple movie trailer", # General streaming
             f"tráiler oficial película {current_year} {next_year}", # Búsqueda específica en español
-            f"super bowl movie trailers {current_year}", # Eventos grandes
-            f"big game movie spot {current_year}" # Spots de la Super Bowl
+            f"super bowl movie trailers {current_year}" # Eventos grandes
         ]
         
         # Ampliamos el margen a 15 días para capturar mejor las novedades de catálogo y trailers mensuales
@@ -128,17 +127,17 @@ def find_and_select_next():
     filtered = []
     for v in videos:
         t = v['title'].lower()
-        # Aceptamos Trailer, Teaser o Spot
-        is_promo = any(kw in t for kw in ['trailer', 'tráiler', 'teaser', 'spot'])
+        # Aceptamos Trailer o Teaser
+        is_promo = any(kw in t for kw in ['trailer', 'tráiler', 'teaser'])
         
         if is_promo:
             # Para 'Trailer', seguimos exigiendo 'Official' para evitar basura fan-made
-            # Pero para 'Spot' o 'Teaser' de grandes eventos, somos más flexibles
+            # Pero para 'Teaser' de grandes eventos, somos más flexibles
             is_official = 'official' in t or 'oficial' in t
             
-            # Un 'Spot' o 'Teaser' suele ser oficial de por sí si viene de canales grandes,
+            # Un 'Teaser' suele ser oficial de por sí si viene de canales grandes,
             # pero el script confía en el Gemini Filter posterior para descartar fan-made.
-            if is_official or 'spot' in t or 'teaser' in t:
+            if is_official or 'teaser' in t:
                 if not any(bw in t for bw in banned_words):
                     filtered.append(v)
     
@@ -162,6 +161,8 @@ def find_and_select_next():
         **VALIDACIÓN CRÍTICA**: Si el título de la película es común (ej: "Dolly", "Smile", "Alone"), verifica doblemente que el tráiler de YouTube pertenece realmente a esa producción. Si el tráiler es de una película indie y hay un blockbuster con el mismo nombre en desarrollo, NO los confundas.
         
         EXCLUYE: Series, documentales, películas antiguas (anteriores a 2024).
+        
+        **FORMATO PLATAFORMA**: Usa solo nombres simples (ej: Cine, Netflix, Disney+, Prime Video). NADA de chistes ni comentarios adicionales.
         
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""

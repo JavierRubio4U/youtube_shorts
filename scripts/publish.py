@@ -3,7 +3,6 @@ from pathlib import Path
 import sys
 import logging
 import subprocess
-from logging.handlers import TimedRotatingFileHandler
 import json
 from datetime import datetime
 
@@ -34,9 +33,9 @@ history_handler = logging.FileHandler(history_path, encoding='utf-8')
 history_handler.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(history_handler)
 
-# 2. Log del Día (Rotativo - se renueva cada medianoche)
+# 2. Log de la ejecución actual (Sobreescribe el anterior)
 daily_path = ROOT / "log_autopilot.txt"
-daily_handler = TimedRotatingFileHandler(daily_path, when="midnight", interval=1, backupCount=30, encoding='utf-8')
+daily_handler = logging.FileHandler(daily_path, mode='w', encoding='utf-8')
 daily_handler.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(daily_handler)
 

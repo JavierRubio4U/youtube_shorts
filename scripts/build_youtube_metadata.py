@@ -122,8 +122,11 @@ def main():
 
     # Asignación final
     if usar_ia:
-        plataforma_principal = ia_platform
-        logging.info(f"Usando plataforma IA: {plataforma_principal}")
+        # Sanitización: si la IA se pone creativa, cortamos en el primer signo de puntuación
+        # Esto evita chistes como "Cine (Solo en salas...)"
+        p_clean = re.split(r'[(\-,]', ia_platform)[0].strip()
+        plataforma_principal = p_clean if p_clean else "Cine"
+        logging.info(f"Usando plataforma IA (sanitizada): {plataforma_principal}")
     elif tmdb_streaming_platforms:
         plataforma_principal = tmdb_streaming_platforms[0]
         logging.info(f"Usando plataforma TMDB (Fallback): {plataforma_principal}")
