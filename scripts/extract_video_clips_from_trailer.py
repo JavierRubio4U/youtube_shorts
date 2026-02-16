@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "output" / "state"
 CLIPS_DIR = ROOT / "assets" / "video_clips"
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+TRAILERS_DIR = ROOT / "assets" / "trailers"
+TRAILERS_DIR.mkdir(parents=True, exist_ok=True)
 
 TMP_DIR = ROOT / "assets" / "tmp"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -75,57 +77,108 @@ def get_video_info(video_path):
         return 30.0, 1920, 1080
 
 def download_trailer(url, tmdb_id, slug):
-    """Descarga el tráiler directamente a la carpeta assets/video_clips."""
+    """Descarga el tráiler directamente a la carpeta assets/trailers."""
     trailer_filename_template = f"{tmdb_id}_{slug}_trailer.%(ext)s"
-    trailer_path_template = CLIPS_DIR / trailer_filename_template
+    trailer_path_template = TRAILERS_DIR / trailer_filename_template
     
+    # Estrategia dinámica de descarga
+    # ... (ydl_opts remain same)
     ydl_opts = {
         'outtmpl': str(trailer_path_template),
-        # CAMBIO: Intentamos 1080p pero permitimos bajar si no existe, 
-        # para evitar el error de 403 y asegurar que descargamos ALGO.
         'format': 'bestvideo[height<=1080]+bestaudio/best',  
-        'format_sort': ['res:1080', 'vcodec:vp9'], # Preferimos 1080p y VP9
-        'prefer_free_formats': True,  # Evita formatos premium restringidos
+        'format_sort': ['res:1080', 'vcodec:vp9'], 
+        'prefer_free_formats': True,
         'merge_output_format': 'mp4',
         'no_playlist': True,
         'quiet': True,
         'verbose': False,
         'no_warnings': True,
-        'cookiefile': str(ROOT / "www.youtube.com_cookies.txt"),
         'nocheckcertificate': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        # Eliminamos argumentos específicos que pueden causar bloqueos
         'forceipv4': True,
-        'retries': 3,
+        'retries': 5,
+        'fragment_retries': 5,
         'log_level': 'error',
     }
     
+    # 1. Intentar con archivo de cookies si existe
+    cookies_path = ROOT / "www.youtube.com_cookies.txt"
+    if cookies_path.exists():
+         ydl_opts['cookiefile'] = str(cookies_path)
+    
+    def find_downloaded_file(tmdb_id):
+        # Busca específicamente el archivo que termine en _trailer en la carpeta de trailers
+        for f in TRAILERS_DIR.glob(f"{tmdb_id}_*_trailer.*"):
+            if f.suffix in ['.mp4', '.webm', '.mkv']:
+                return f
+        return None
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print("Extrayendo información del tráiler...")
-            info = ydl.extract_info(url, download=False)  # Extrae info primero
-            print("Formato seleccionado:", info.get('format_id', 'No encontrado'))  # Log: ID de formato
-            print("Iniciando descarga...")
-            ydl.download([url])
-    except yt_dlp.utils.DownloadError as de:
-        logging.error(f"Error de descarga específico: {de}")
-        raise
+        logging.info(f"Descargando tráiler desde {url}...")
+        
+        # Intento 1: Configuración estándar (con cookies.txt si existe)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            
+            # Verificación robusta del archivo descargado
+            found = find_downloaded_file(tmdb_id)
+            if found: return found
+            
+            # Si no lo encuentra, puede que haya fallado silenciosamente o cambiado el nombre
+            logging.warning("⚠️ No se encontró el archivo esperado, buscando variantes...")
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            logging.warning(f"⚠️ Falló descarga inicial: {e}")
+            
+            # Si falla por bot/login, intentamos fallback con navegador
+            if "sign in" in error_msg or "403" in error_msg or "bot" in error_msg:
+                 logging.info("🔄 Reintentando usando cookies de Chrome (Browser Fallback)...")
+                 
+                 # Limpiamos cookiefile para usar browser cookies
+                 if 'cookiefile' in ydl_opts:
+                     del ydl_opts['cookiefile']
+                 
+                 # Añadimos cookiesfrombrowser
+                 ydl_opts['cookiesfrombrowser'] = ('chrome', ) 
+                 
+                 try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([url])
+                    
+                    found = find_downloaded_file(tmdb_id)
+                    if found: 
+                        logging.info(f"✅ Descarga completada: {found.name}")
+                        return found
+                        
+                 except Exception as e2:
+                     logging.error(f"❌ Falló fallback de navegador: {e2}")
+                     # Último recurso: Sin cookies ni auth
+                     if 'cookiesfrombrowser' in ydl_opts:
+                         del ydl_opts['cookiesfrombrowser']
+                     
+                     logging.info("🔄 Último intento: Sin cookies...")
+                     try:
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([url])
+                        
+                        found = find_downloaded_file(tmdb_id)
+                        if found: return found
+                        
+                     except Exception as e3:
+                         raise e3
+        
+        # Última comprobación
+        found = find_downloaded_file(tmdb_id)
+        if found: return found
+        
+        logging.error("❌ No se encontró ningún archivo de video válido tras la descarga.")
+        return None
+
     except Exception as e:
         logging.error(f"Fallo general en descarga: {e}")
-        import traceback
-        print("Traza del error:")
-        traceback.print_exc()
-        raise
-    
-    # Busca el archivo descargado
-    downloaded_files = list(CLIPS_DIR.glob(f"{tmdb_id}_{slug}_trailer.*"))
-    if not downloaded_files:
-        raise ValueError("No se creó ningún archivo de tráiler.")
-        
-    trailer_path = downloaded_files[0]
-    if not trailer_path.exists() or trailer_path.stat().st_size == 0:
-        raise ValueError(f"Archivo de tráiler creado pero vacío o inválido: {trailer_path}")
+        return None
     
     # Informar resolución y tamaño
     try:

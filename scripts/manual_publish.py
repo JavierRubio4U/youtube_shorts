@@ -124,8 +124,17 @@ def main():
         target_year = sys.argv[2]
         print(f"Argumentos detectados: {target_title} ({target_year})")
     else:
-        target_title = input("Nombre de la película: ").strip()
-        target_year = input("Año de estreno: ").strip()
+        # FIX: Evitar saltos de línea residuales en el input
+        try:
+            target_title = input("Nombre de la película: ").strip()
+            # Si por alguna razón target_title está vacío (enter residual), pedir de nuevo
+            while not target_title:
+                target_title = input("Nombre de la película: ").strip()
+                
+            target_year = input("Año de estreno: ").strip()
+        except EOFError:
+            print("❌ Error de entrada: EOF detectado.")
+            return
 
     if not target_title or not target_year:
         print("❌ Datos inválidos.")

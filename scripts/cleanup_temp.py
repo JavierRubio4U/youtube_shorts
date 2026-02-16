@@ -13,9 +13,10 @@ POSTERS_VERT_DIR = ASSETS_DIR / "posters_vertical"
 POSTERS_DIR = ASSETS_DIR / "posters"
 NARRATION_DIR = ASSETS_DIR / "narration"
 CLIPS_DIR = ASSETS_DIR / "video_clips"
+TRAILERS_DIR = ASSETS_DIR / "trailers"
 TMP_ASSETS_DIR = ASSETS_DIR / "tmp"
 # Si tienes otras como 'posters_vertical', añádelas aquí
-ASSET_DIRS_TO_CLEAR = [POSTERS_DIR, NARRATION_DIR, CLIPS_DIR, POSTERS_VERT_DIR, TMP_ASSETS_DIR]
+ASSET_DIRS_TO_CLEAR = [POSTERS_DIR, NARRATION_DIR, CLIPS_DIR, TRAILERS_DIR, POSTERS_VERT_DIR, TMP_ASSETS_DIR]
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -41,6 +42,10 @@ def cleanup_on_start():
     logging.info("--- Limpieza de Inicio: Eliminando assets de la ejecución anterior ---")
     for dir_path in ASSET_DIRS_TO_CLEAR:
         _clear_directory(dir_path)
+    
+    # También limpiamos la carpeta temp al inicio por si quedó algo de una ejecución abortada
+    if TEMP_DIR.exists():
+        _clear_directory(TEMP_DIR)
     
     # --- CAMBIO: Borrar shorts anteriores en lugar de archivarlos ---
     shorts_dir = ROOT / "output" / "shorts"

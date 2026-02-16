@@ -10,6 +10,7 @@ from google.auth.transport.requests import Request
 from gemini_config import GEMINI_MODEL
 import os
 import sys
+import time
 
 # --- Imports de utils ---
 if str(Path(__file__).resolve().parent) not in sys.path:
@@ -167,11 +168,24 @@ def find_and_select_next():
         JSON array: [{{'pelicula': str, 'año': int, 'index': int, 'plataforma': str (opcional)}}]
         List:\n{titles_str}"""
         
-        # New SDK call
-        resp = client.models.generate_content(
-            model=GEMINI_MODEL, 
-            contents=prompt,
-        )
+        # New SDK call with retry
+        max_retries = 3
+        resp = None
+        for attempt in range(max_retries):
+            try:
+                resp = client.models.generate_content(
+                    model=GEMINI_MODEL, 
+                    contents=prompt,
+                )
+                break
+            except Exception as e:
+                error_str = str(e)
+                if "503" in error_str or "Deadline" in error_str or "429" in error_str:
+                    if attempt < max_retries - 1:
+                        logging.warning(f"⚠️ Error temporal de Gemini en búsqueda ({e}). Reintentando... ({attempt+1}/{max_retries})")
+                        time.sleep(5)
+                        continue
+                raise e
         
         # --- FIX: Limpieza robusta y Debug ---
         raw_text = resp.text if resp.text else ""

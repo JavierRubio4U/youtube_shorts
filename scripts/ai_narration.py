@@ -6,6 +6,10 @@ from google import genai
 import tempfile
 import requests
 import subprocess
+import os
+import sys
+import random
+import time
 from gemini_config import GEMINI_MODEL
 
 # --- Configuración ---
@@ -42,6 +46,10 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
     curiosity = sel.get("movie_curiosity", "")
     synopsis = sel.get("sinopsis", "")
     
+    if not synopsis or len(synopsis.strip()) < 10:
+        logging.error("❌ No hay sinopsis suficiente para generar un guion real. Abortando narración.")
+        return None
+    
     logging.info(f"DEBUG - Sinopsis recibida en ai_narration: {synopsis[:100]}...")
     
     hook_angle = sel.get("hook_angle", "CURIOSITY").upper() 
@@ -74,15 +82,16 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
     
     PARTE 1: El Gancho ({hook_instruction}).
        - Máx 18 palabras. 
-       - Sé directo. Si mencionas a alguien (director, actor, etc.), aclara brevemente quién es o qué ha hecho (ej: "Gunn, el jefazo de DC" o "Milly Alcock, la de La Casa del Dragón") para que hasta mi abuela lo entienda. 
+       - **REGLA DE ORO SOBRE NOMBRES:** Máximo UN nombre propio en todo el guion (contando PARTE 1 y 2). Si no es una estrella mundial (tipo Brad Pitt), explica brevemente quién es (ej: "Gunn, el jefazo de DC"). Si hay varios actores, elige solo al más importante o ninguno.
        - **PROHIBIDO:** No uses títulos de otras películas como metáforas o adjetivos (ej: NADA de "un Taken de mercadillo" o "un Rambo de barrio"). Si quieres comparar, describe la acción (ej: "un padre repartiendo leña").
        - Evita anglicismos que el lector de voz (TTS) pueda pronunciar mal.
     
     PARTE 2: El Meollo (Trama: "{synopsis}").
        - Conecta el gancho con el resto de la historia de forma fluida y natural.
-       - Da detalles de la trama. Que el espectador sepa QUÉ va a ver realmente.
+       - Da detalles de la trama con **MUCHO HUMOR, guasa y exageración**. Imagina que se lo cuentas a un colega que está medio sordo y se ríe de todo.
+       - No enumeres personajes ni villanos secundarios. Céntrate en la movida principal de forma gamberra.
        - Todo debe entenderse a la primera, sin necesidad de ser un experto en cine o conocer referencias oscuras.
-       - Termina con un REMATE DIVERTIDO: Una frase final con mucha guasa, un chiste o una observación ingeniosa que deje con ganas de más. Evita ser puramente negativo.
+       - Termina con un REMATE DIVERTIDO: Una frase final con mucha guasa, un chiste o una observación ingeniosa que deje con ganas de más.
        - NO hagas preguntas al espectador.
     
     OUTPUT: Texto Gancho | Texto Meollo
@@ -95,7 +104,23 @@ def _generate_narration_parts(sel: dict, model=GEMINI_MODEL, min_words=55, max_w
         logging.info(f"DEBUG - Prompt Final Narración:\n{prompt}")
 
         client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(model=model, contents=prompt)
+        
+        # Retry logic for Gemini call
+        max_retries = 3
+        resp = None
+        for attempt in range(max_retries):
+            try:
+                resp = client.models.generate_content(model=model, contents=prompt)
+                break
+            except Exception as e:
+                error_str = str(e)
+                if "503" in error_str or "Deadline" in error_str or "429" in error_str:
+                    if attempt < max_retries - 1:
+                        logging.warning(f"⚠️ Error temporal de Gemini en Narración ({e}). Reintentando... ({attempt+1}/{max_retries})")
+                        time.sleep(5)
+                        continue
+                raise e
+
         text = resp.text.strip()
         
         if "|" in text:

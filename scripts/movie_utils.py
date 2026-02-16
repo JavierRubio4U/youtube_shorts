@@ -215,12 +215,15 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         return None
     
 def get_synopsis_chain(title: str, year: int, tmdb_id: str) -> str:
-    """FALLBACK simple."""
+    """FALLBACK simple: Traduce o mejora la sinopsis si existe en otro idioma."""
     try:
+        # Intentamos obtener la sinopsis en inglés como fallback
         movie_data = api_get(f"/movie/{tmdb_id}", {"language": "en-US"})
-        if not movie_data: return ""
+        if not movie_data or not movie_data.get('overview'): 
+            return "" # Si no hay ni en inglés, no inventamos
         
-        prompt = f"Escribe una sinopsis corta (50 palabras) y gamberra en español para la película '{title}'. Trama: {movie_data.get('overview', '')}"
+        overview_en = movie_data.get('overview', '')
+        prompt = f"Escribe una sinopsis corta (50 palabras) y gamberra en español para la película '{title}'. Basate estrictamente en esta trama: {overview_en}"
         
         config = load_config()
         client = genai.Client(api_key=config["GEMINI_API_KEY"])
@@ -256,20 +259,21 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str,
         1. Si la sinopsis oficial está vacía, BUSCA información real sobre de qué trata esta película específica de {year}. No inventes.
         2. Decide CÓMO venderla en un video corto con humor canalla, divertido y mucho salseo.
         
-        **ESTILO:** No seas un crítico de cine aburrido. Sé gamberro, usa lenguaje de la calle (jerga española moderna), evita palabras rebuscadas. No queremos a Cervantes ni lenguaje épico de IA. Queremos a alguien que cuenta las cosas con mucha guasa, anécdotas locas y humor de bar, pero que den ganas de ver la peli (o de reírse con ella).
+        **ESTILO:** No seas un crítico de cine aburrido. Sé gamberro, usa lenguaje de la calle (jerga española moderna), evita palabras rebuscadas. Hazlo MUY gracioso y exagerado. Queremos salseo de bar, anécdotas locas y humor gamberro que den ganas de ver la peli o de reírse con ella.
         
         **REGLAS CRÍTICAS:**
         - Si NO encuentras información real de la trama o es una película diferente a la del año {year}, responde con "ERROR: NO_INFO".
+        - **NOMBRES AL MÍNIMO:** No aburras con una lista de nombres de actores o personajes. Como mucho menciona a uno y, si no es una superestrella mundial, explica brevemente quién es o qué ha hecho.
         - Prohibido alucinar. Si no hay datos, no hay vídeo.
         - Usa al actor principal ({main_actor}) como referencia si es relevante.
-
+        
         Responde SÓLO con un JSON válido o la palabra "ERROR: NO_INFO".
         Formato JSON:
         {{
-            "synopsis": "Sinopsis divertida, con chispa e informativa de la trama REAL",
-            "actor_reference": "Dato curioso sobre {main_actor} explicado para todos los públicos",
-            "director": "Nombre del director y su estilo",
-            "movie_curiosity": "El salseo/dato impactante real de esta película",
+            "synopsis": "Sinopsis MUY divertida, gamberra y exagerada de la trama REAL (evita listas de nombres)",
+            "actor_reference": "Dato curioso o salseo sobre {main_actor} (si es famoso) o sobre la producción",
+            "director": "Nombre del director y su estilo (solo si es relevante para la gracia)",
+            "movie_curiosity": "El salseo/dato impactante o gracioso real de esta película",
             "hook_angle": "ACTOR" | "DIRECTOR" | "CURIOSITY" | "PLOT",
             "platform": "SOLO el nombre de la plataforma (ej: Cine, Netflix, Disney+, Amazon Prime Video). Prohibido añadir chistes, comentarios o descripciones largas."
         }}
@@ -277,12 +281,30 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str,
         
         logging.info(f"DEBUG - Enviando consulta a Gemini para investigar '{title}' ({year})...")
         
-        # Usamos google-search si está disponible para evitar alucinaciones
-        response = client.models.generate_content(
-            model=GEMINI_MODEL, 
-            contents=research_prompt,
-            config={"tools": [{"google_search": {}}]}
-        )
+        # Implementación de reintentos para errores 503/Timeout
+        max_retries = 3
+        response = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Usamos google-search si está disponible para evitar alucinaciones
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL, 
+                    contents=research_prompt,
+                    config={"tools": [{"google_search": {}}]}
+                )
+                break # Éxito, salimos del bucle
+            except Exception as e:
+                error_str = str(e)
+                # Filtramos errores recuperables: 503 (Service Unavailable), Deadline Exceeded, 429 (Too Many Requests)
+                if "503" in error_str or "Deadline" in error_str or "429" in error_str:
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 5
+                        logging.warning(f"⚠️ Error temporal de Gemini ({e}). Reintentando en {wait_time}s... (Intento {attempt+1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                raise e # Si no es un error temporal o se acabaron los intentos, lanzamos la excepción
+        
         text = response.text.strip()
         
         if "ERROR: NO_INFO" in text:
@@ -302,24 +324,19 @@ def get_deep_research_data(title: str, year: int, main_actor: str, tmdb_id: str,
              return None
 
         return final_json
-        text = response.text.strip()
-        
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-            
-        final_json = json.loads(text)
-        return final_json
 
     except Exception as e:
         logging.error(f"Error Deep Research (Standard): {e}")
-        # Fallback de seguridad
+        # Si no hay overview de TMDB y falló el research, DEBEMOS abortar
+        if not overview:
+            return None
+            
+        # Si al menos tenemos el overview de TMDB, podemos seguir con un fallback básico
         return {
-            "synopsis": "",
-            "actor_reference": "",
-            "director": "",
-            "movie_curiosity": "Se dice que es la película del año",
+            "synopsis": overview,
+            "actor_reference": main_actor,
+            "director": "Desconocido",
+            "movie_curiosity": "Se dice que es una de las pelis del año.",
             "hook_angle": "PLOT",
             "platform": "Cine"
         }
