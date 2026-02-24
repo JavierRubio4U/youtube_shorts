@@ -62,12 +62,12 @@ def find_and_select_next():
         current_year = datetime.now().year
         next_year = current_year + 1
         
-        # Consolidamos en 3 búsquedas potentes
+        # Consolidamos en 4 búsquedas potentes (más genéricas para evitar ruido de años)
         queries = [
-            f"official movie trailer {current_year} {next_year}", # General estrenos cine
+            "official movie trailer", # General estrenos cine (sin año para evitar 'Best of' spam)
             "netflix disney amazon prime apple movie trailer", # General streaming
-            f"tráiler oficial película {current_year} {next_year}", # Búsqueda específica en español
-            f"super bowl movie trailers {current_year}" # Eventos grandes
+            "tráiler oficial película", # Búsqueda específica en español
+            "new movie trailer teaser" # Captura novedades y teasers
         ]
         
         # Ampliamos el margen a 15 días para capturar mejor las novedades de catálogo y trailers mensuales
