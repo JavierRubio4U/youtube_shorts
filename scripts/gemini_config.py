@@ -13,4 +13,5 @@ Esto elimina la dependencia mutua entre publish.py, find.py y los demás.
 
 # --- Constante global única ---
 # GEMINI_MODEL = "gemini-2.5-pro"
-GEMINI_MODEL = "gemini-3-pro-preview"
+# GEMINI_MODEL = "gemini-3-pro-preview"
+GEMINI_MODEL = "gemini-3.1-pro-preview"
