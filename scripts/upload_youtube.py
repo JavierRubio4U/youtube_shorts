@@ -9,6 +9,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 import logging
+from thumbnail_utils import set_short_thumbnail
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 # ---------------------------------------------------------------------
 # Rutas y constantes
@@ -123,6 +124,18 @@ def main(video_path: str | None = None):
     
     if video_id:
         print("✅ Subida completada. ID:", video_id)
+        
+        # Intentar poner el póster como miniatura
+        tmdb_id = meta.get("tmdb_id")
+        if tmdb_id:
+            poster_path = ROOT / "assets" / "posters" / f"{tmdb_id}_poster.jpg"
+            if poster_path.exists():
+                print(f"Subiendo miniatura: {poster_path}")
+                youtube = _get_youtube_service()
+                set_short_thumbnail(youtube, video_id, str(poster_path))
+            else:
+                print(f"⚠️ No se encontró el póster en {poster_path}, no se pondrá miniatura personalizada.")
+        
     return video_id
 if __name__ == "__main__":
     main()
