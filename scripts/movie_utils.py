@@ -33,6 +33,14 @@ def load_config():
 
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 IMG_BASE_URL = "https://image.tmdb.org/t/p"
+
+def _is_non_latin(text: str) -> bool:
+    """Detecta títulos en CJK (japonés, chino, coreano) u otros scripts no latinos."""
+    for ch in text:
+        cp = ord(ch)
+        if 0x3000 <= cp <= 0x9FFF or 0xAC00 <= cp <= 0xD7FF or 0xF900 <= cp <= 0xFAFF:
+            return True
+    return False
 POSTER_SIZE = "w500"
 BACKDROP_SIZE = "w1280"
 
@@ -195,9 +203,19 @@ def enrich_movie_basic(tmdb_id: int, movie_name: str, year: int, trailer_url: st
         final_streaming_list = es_streaming if es_streaming else [f"{p} (US)" for p in us_streaming]
         platforms = {"streaming": final_streaming_list}
 
+        titulo = data["title"]
+        if _is_non_latin(titulo):
+            data_en = api_get(f"/movie/{tmdb_id}", {"language": "en-US"})
+            titulo_en = data_en.get("title", "") if data_en else ""
+            if titulo_en and not _is_non_latin(titulo_en):
+                logging.info(f"⚠️ Título no latino '{titulo}' → usando inglés: '{titulo_en}'")
+                titulo = titulo_en
+            else:
+                logging.warning(f"⚠️ Sin traducción latina para '{titulo}', se usará el original")
+
         enriched_data = {
-            "tmdb_id": tmdb_id, # Usamos tmdb_id
-            "titulo": data["title"],
+            "tmdb_id": tmdb_id,
+            "titulo": titulo,
             "fecha_estreno": fecha_estreno,
             "generos": generos,
             "sinopsis": sinopsis,

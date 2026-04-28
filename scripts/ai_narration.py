@@ -139,62 +139,105 @@ def _clean_text_for_eleven(text):
     """Limpia asteriscos de markdown que Gemini a veces pone."""
     return text.replace("*", "").replace('"', "").strip()
 
-# --- SÍNTESIS ELEVENLABS ---
+
+VOICE_REFERENCE = NARRATION_DIR / "voice_reference.mp3"
+VOXTRAL_MODEL   = "voxtral-mini-tts-2603"
+
+# --- SÍNTESIS VOXTRAL (Mistral) ---
+def _synthesize_voxtral(hook: str, body: str, tmdb_id: str) -> Path | None:
+    try:
+        from mistralai.client import Mistral
+        import base64
+
+        api_key_path = CONFIG_DIR / "mistral_api_key.txt"
+        if not api_key_path.exists():
+            logging.error("❌ Falta config/mistral_api_key.txt — usando ElevenLabs como fallback")
+            return None
+
+        if not VOICE_REFERENCE.exists():
+            logging.error(f"❌ Falta audio de referencia en {VOICE_REFERENCE} — usando ElevenLabs como fallback")
+            return None
+
+        safe_hook = _clean_text_for_eleven(hook)
+        safe_body = _clean_text_for_eleven(body)
+        full_text = f"{safe_hook} ... {safe_body}"
+
+        ref_audio_b64 = base64.b64encode(VOICE_REFERENCE.read_bytes()).decode()
+
+        client = Mistral(api_key=api_key_path.read_text(encoding="utf-8").strip())
+
+        logging.info("🎙️ Enviando texto a Voxtral TTS (Mistral)...")
+        response = client.audio.speech.complete(
+            model=VOXTRAL_MODEL,
+            input=full_text,
+            ref_audio=ref_audio_b64,
+            response_format="mp3",
+        )
+
+        temp_mp3  = NARRATION_DIR / f"{tmdb_id}_raw.mp3"
+        final_mp3 = NARRATION_DIR / f"{tmdb_id}_narration.mp3"
+
+        temp_mp3.write_bytes(base64.b64decode(response.audio_data))
+
+        try:
+            logging.info("🚀 Acelerando narración a 1.1x...")
+            cmd = ['ffmpeg', '-y', '-i', str(temp_mp3), '-filter:a', 'atempo=1.1', '-vn', str(final_mp3)]
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if temp_mp3.exists(): temp_mp3.unlink()
+            logging.info(f"✅ Audio Voxtral generado y acelerado: {final_mp3}")
+        except Exception as e:
+            logging.warning(f"⚠️ Falló aceleración FFmpeg, usando audio original: {e}")
+            temp_mp3.rename(final_mp3)
+
+        return final_mp3
+
+    except Exception as e:
+        logging.error(f"❌ Error Voxtral TTS: {e}")
+        return None
+
+
+# --- SÍNTESIS ELEVENLABS (fallback) ---
 def _synthesize_elevenlabs(hook: str, body: str, tmdb_id: str) -> Path | None:
     try:
         api_key_path = CONFIG_DIR / "elevenlabs_api_key.txt"
         if not api_key_path.exists():
             logging.error("❌ Falta el archivo elevenlabs_api_key.txt en /config")
             return None
-            
-        api_key = api_key_path.read_text(encoding="utf-8").strip()
 
-        # Limpieza simple
+        api_key = api_key_path.read_text(encoding="utf-8").strip()
         safe_hook = _clean_text_for_eleven(hook)
         safe_body = _clean_text_for_eleven(body)
-        
-        # Unimos texto con una pausa natural (...) para que la IA respire
         full_text = f"{safe_hook} ... {safe_body}"
 
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}"
-        
-        headers = {
-            "xi-api-key": api_key,
-            "Content-Type": "application/json"
-        }
-
+        headers = {"xi-api-key": api_key, "Content-Type": "application/json"}
         payload = {
             "text": full_text,
             "model_id": ELEVEN_MODEL_ID,
             "voice_settings": {
-                "stability": 0.5,       # Equilibrado para que tenga emoción
+                "stability": 0.5,
                 "similarity_boost": 0.75,
-                "style": 0.5,           # Un poco de exageración (si el modelo v2 lo permite)
+                "style": 0.5,
                 "use_speaker_boost": True
             }
         }
 
-        logging.info("🎙️ Enviando texto a ElevenLabs...")
+        logging.info("🎙️ Enviando texto a ElevenLabs (fallback)...")
         response = requests.post(url, json=payload, headers=headers)
 
         if response.status_code == 200:
-            temp_wav = NARRATION_DIR / f"{tmdb_id}_raw.mp3"
+            temp_wav  = NARRATION_DIR / f"{tmdb_id}_raw.mp3"
             final_wav = NARRATION_DIR / f"{tmdb_id}_narration.mp3"
-            
+
             with open(temp_wav, "wb") as f:
                 f.write(response.content)
-            
-            # ACELERACIÓN 1.1x con FFmpeg (mantiene el tono original)
+
             try:
                 logging.info("🚀 Acelerando narración a 1.1x...")
-                cmd = [
-                    'ffmpeg', '-y', '-i', str(temp_wav),
-                    '-filter:a', "atempo=1.1",
-                    '-vn', str(final_wav)
-                ]
+                cmd = ['ffmpeg', '-y', '-i', str(temp_wav), '-filter:a', 'atempo=1.1', '-vn', str(final_wav)]
                 subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                if temp_wav.exists(): temp_wav.unlink() # Borramos el original lento
-                logging.info(f"✅ Audio generado y acelerado: {final_wav}")
+                if temp_wav.exists(): temp_wav.unlink()
+                logging.info(f"✅ Audio ElevenLabs generado y acelerado: {final_wav}")
             except Exception as e:
                 logging.warning(f"⚠️ Falló aceleración FFmpeg, usando audio original: {e}")
                 temp_wav.rename(final_wav)
@@ -208,23 +251,28 @@ def _synthesize_elevenlabs(hook: str, body: str, tmdb_id: str) -> Path | None:
         logging.error(f"Error Crítico Audio: {e}")
         return None
 
+
+def _synthesize(hook: str, body: str, tmdb_id: str) -> Path | None:
+    """Intenta Voxtral primero, ElevenLabs como fallback."""
+    voice_path = _synthesize_voxtral(hook, body, tmdb_id)
+    if voice_path:
+        return voice_path
+    logging.warning("⚠️ Voxtral falló, intentando ElevenLabs como fallback...")
+    return _synthesize_elevenlabs(hook, body, tmdb_id)
+
+
 def main():
     if not (TMP_DIR / "next_release.json").exists(): return None
     sel = json.loads((TMP_DIR / "next_release.json").read_text(encoding="utf-8"))
-    
-    # Ya no necesitamos directorio temporal para decodificar base64, 
-    # pero mantenemos la estructura por si acaso.
+
     hook, body = _generate_narration_parts(sel)
     if not hook: return None
-    
-    # Llamamos a ElevenLabs
-    voice_path = _synthesize_elevenlabs(hook, body, str(sel.get("tmdb_id")))
-    
+
+    voice_path = _synthesize(hook, body, str(sel.get("tmdb_id")))
+
     if voice_path:
         return f"{hook} {body}", voice_path
-            
-    return None, None
-            
+
     return None, None
 
 if __name__ == "__main__":

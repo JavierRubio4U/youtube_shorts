@@ -228,7 +228,7 @@ def find_and_select_next():
     enriched = []
     
     streaming_keywords = ["netflix", "prime video", "disney", "hbo", "max", "apple tv", "hulu", "peacock"]
-    excluded_langs = ['hi', 'te', 'ta', 'ml', 'kn', 'pa', 'ur']
+    excluded_langs = ['hi', 'te', 'ta', 'ml', 'kn', 'pa', 'ur', 'tl']
 
     for cand in candidates:
         movie_name = cand['pelicula']
