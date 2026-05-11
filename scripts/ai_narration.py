@@ -140,7 +140,7 @@ def _clean_text_for_eleven(text):
     return text.replace("*", "").replace('"', "").strip()
 
 
-VOICE_REFERENCE = NARRATION_DIR / "voice_reference.mp3"
+VOICE_REFERENCE = CONFIG_DIR / "voice_reference.mp3"  # En config/ para sobrevivir la limpieza
 VOXTRAL_MODEL   = "voxtral-mini-tts-2603"
 
 # --- SÍNTESIS VOXTRAL (Mistral) ---

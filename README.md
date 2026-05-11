@@ -137,13 +137,44 @@ Queries Google API to see which Gemini models are active with your current key.
     - `build_youtube_metadata.py`: Generates optimized Titles, Descriptions and Tags using AI.
     - `build_short.py`: Video assembler (MoviePy).
     - `gemini_config.py`: Central configuration for Gemini AI models.
-- **`config/`**: API keys (`google_api_key.txt`, `tmdb_api_key.txt`, `elevenlabs_api_key.txt`).
+- **`config/`**: API keys (`google_api_key.txt`, `tmdb_api_key.txt`, `elevenlabs_api_key.txt`, `mistral_api_key.txt`).
 - **`assets/tmp/next_release.json`**: Temporary file with current movie selection.
+- **`assets/narration/voice_reference.mp3`**: Reference audio clip used by Voxtral TTS for voice cloning (ElevenLabs style=1.0).
 - **`output/state/`**:
     - `published.json`: List of published TMDB IDs to avoid duplicates.
-    - `historic.json`: Detailed log of all successful releases (scores, strategies, titles).
+    - `historic.json`: Detailed log of all successful releases (scores, strategies, titles). Last ~30 entries.
     - `youtube_token.json`: OAuth2 credentials for YouTube.
 - **`test/`**: Scripts for verification and troubleshooting (ignored by git).
+
+## 📋 Logs — Guía de Referencia
+
+Hay 4 ficheros de log con propósitos distintos. Para investigar un problema, empieza siempre por `log_history.txt`.
+
+| Fichero | Contenido | Cuándo se sobreescribe | Rango típico |
+|---------|-----------|----------------------|--------------|
+| `log_history.txt` | **Log maestro acumulativo.** Guarda TODAS las ejecuciones desde el inicio: candidatos, scores, guiones generados, publicaciones. Es el único que no se borra. | Nunca (solo crece) | Desde el inicio del proyecto |
+| `log_autopilot.txt` | Resumen compacto de la última ejecución. Útil para ver de un vistazo qué pasó hoy. | Cada ejecución | Solo la última ejecución |
+| `log_ejecucion.txt` | Log detallado de la última ejecución con toda la salida de MoviePy y ffmpeg. Útil para depurar errores de vídeo/audio. | Cada ejecución | Solo la última ejecución |
+| `temp_log.txt` | Log legacy en UTF-16. Ya no se usa activamente. | — | Histórico antiguo |
+
+### Búsquedas útiles
+
+```powershell
+# Ver todas las veces que se seleccionó o descartó una película por título
+grep -i "Nombre Pelicula" log_history.txt
+
+# Ver todas las publicaciones exitosas
+grep "marcada como publicada" log_history.txt
+
+# Ver todos los descartes con motivo
+grep "RECHAZADA\|DESCARTADA" log_history.txt
+
+# Ver qué pasó en una fecha concreta
+grep "^2026-04-22" log_history.txt
+
+# Ver si una película se intentó pero falló (seleccionada pero no publicada)
+grep -A2 "SELECCIONADA: Nombre Pelicula" log_history.txt
+```
 
 ## ⚠️ Troubleshooting
 

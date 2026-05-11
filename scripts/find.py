@@ -240,13 +240,19 @@ def find_and_select_next():
             log_discard(movie_name, reason)
             continue
         
-        tmdb_movie = res["results"][0]
-        tmdb_id = tmdb_movie["id"]
-        tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
-        
         cand_year = cand.get('año')
         if not cand_year:
             cand_year = datetime.now().year
+
+        # Buscar el resultado de TMDb que mejor case con el año del candidato
+        # en vez de coger siempre el primero (evita cruzar películas con mismo nombre)
+        target_years_search = [str(int(cand_year)-1), str(cand_year), str(int(cand_year)+1)]
+        tmdb_movie = next(
+            (m for m in res["results"] if m.get("release_date", "")[:4] in target_years_search),
+            res["results"][0]  # fallback al primero si ninguno casa
+        )
+        tmdb_id = tmdb_movie["id"]
+        tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
         
         is_streaming_ia = cand.get('plataforma', 'Cine') not in ['Cine', 'Teatros', 'None', None]
         
