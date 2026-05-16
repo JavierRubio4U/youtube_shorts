@@ -35,10 +35,28 @@ TMDB_BASE_URL = "https://api.themoviedb.org/3"
 IMG_BASE_URL = "https://image.tmdb.org/t/p"
 
 def _is_non_latin(text: str) -> bool:
-    """Detecta títulos en CJK (japonés, chino, coreano) u otros scripts no latinos."""
+    """Detecta títulos en scripts no latinos: CJK, Devanagari, Bengali, árabe, tailandés, etc."""
     for ch in text:
         cp = ord(ch)
-        if 0x3000 <= cp <= 0x9FFF or 0xAC00 <= cp <= 0xD7FF or 0xF900 <= cp <= 0xFAFF:
+        if (
+            0x0600 <= cp <= 0x06FF or  # Árabe
+            0x0900 <= cp <= 0x097F or  # Devanagari (hindi, nepalí, marathi)
+            0x0980 <= cp <= 0x09FF or  # Bengalí
+            0x0A00 <= cp <= 0x0A7F or  # Gurmukhi (punjabi)
+            0x0A80 <= cp <= 0x0AFF or  # Gujarati
+            0x0B00 <= cp <= 0x0B7F or  # Oriya
+            0x0B80 <= cp <= 0x0BFF or  # Tamil
+            0x0C00 <= cp <= 0x0C7F or  # Telugu
+            0x0C80 <= cp <= 0x0CFF or  # Kannada
+            0x0D00 <= cp <= 0x0D7F or  # Malayalam
+            0x0E00 <= cp <= 0x0E7F or  # Tailandés
+            0x0E80 <= cp <= 0x0EFF or  # Lao
+            0x1000 <= cp <= 0x109F or  # Birmano
+            0x1780 <= cp <= 0x17FF or  # Jemer
+            0x3000 <= cp <= 0x9FFF or  # CJK (chino, japonés)
+            0xAC00 <= cp <= 0xD7FF or  # Coreano (Hangul)
+            0xF900 <= cp <= 0xFAFF     # CJK compatibilidad
+        ):
             return True
     return False
 POSTER_SIZE = "w500"

@@ -18,7 +18,7 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 
 from movie_utils import (
     _load_state, is_published, api_get, get_synopsis_chain, enrich_movie_basic,
-    load_config, get_deep_research_data, log_discard
+    load_config, get_deep_research_data, log_discard, _is_non_latin
 )
 
 # --- Configuración ---
@@ -228,7 +228,16 @@ def find_and_select_next():
     enriched = []
     
     streaming_keywords = ["netflix", "prime video", "disney", "hbo", "max", "apple tv", "hulu", "peacock"]
-    excluded_langs = ['hi', 'te', 'ta', 'ml', 'kn', 'pa', 'ur', 'tl']
+    excluded_langs = [
+        # Indio
+        'hi', 'te', 'ta', 'ml', 'kn', 'pa', 'ur', 'mr', 'gu', 'or', 'as',
+        # Asiático no-occidental
+        'ne', 'si', 'my', 'km', 'lo', 'th',
+        # Bangladés / sudeste asiático
+        'bn',
+        # Filipino
+        'tl',
+    ]
 
     for cand in candidates:
         movie_name = cand['pelicula']
@@ -253,9 +262,17 @@ def find_and_select_next():
         )
         tmdb_id = tmdb_movie["id"]
         tmdb_year = str(tmdb_movie.get("release_date", "")[:4])
-        
+
+        # Filtro de script no latino (segunda barrera además de excluded_langs)
+        orig_title = tmdb_movie.get("original_title", "")
+        if _is_non_latin(orig_title):
+            reason = f"Título en script no latino: '{orig_title}'"
+            logging.info(f"   [x] Descartado '{movie_name}': {reason}")
+            log_discard(movie_name, reason, tmdb_id)
+            continue
+
         is_streaming_ia = cand.get('plataforma', 'Cine') not in ['Cine', 'Teatros', 'None', None]
-        
+
         # Filtro de año: Estricto para cine, y ventana de 2 años para streaming (catálogo reciente)
         min_year = int(datetime.now().year) - 2 # Permitimos hasta 2024 si estamos en 2026
         if not is_streaming_ia:
