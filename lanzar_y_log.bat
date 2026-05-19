@@ -15,5 +15,3 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "    Write-Host $line; " ^
     "    $line | Out-File -FilePath log_ejecucion.txt -Append -Encoding UTF8 " ^
     "}"
-
-pause
