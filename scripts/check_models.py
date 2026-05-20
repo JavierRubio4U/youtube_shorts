@@ -21,8 +21,8 @@ if config:
                 found_configured = True
     
     if found_configured:
-        print(f"\n✅ El modelo configurado '{GEMINI_MODEL}' está disponible y listo para usar.")
+        print(f"\n[OK] El modelo configurado '{GEMINI_MODEL}' esta disponible y listo para usar.")
     else:
-        print(f"\n❌ ADVERTENCIA: El modelo '{GEMINI_MODEL}' NO aparece en tu lista. Verifica los permisos en Google AI Studio.")
+        print(f"\n[ERROR] ADVERTENCIA: El modelo '{GEMINI_MODEL}' NO aparece en tu lista. Verifica los permisos en Google AI Studio.")
 else:
     print("No se pudo cargar la config.")
